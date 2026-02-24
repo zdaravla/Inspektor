@@ -406,8 +406,8 @@ function renderPlanLib(){
 function handleAddPlan(e){
   const f=e.target.files[0];if(!f)return;
   const reader=new FileReader();
-  reader.onload=ev=>{
-    pendingPlanDataUrl=ev.target.result;
+  reader.onload=async ev=>{
+    pendingPlanDataUrl=await compressImage(ev.target.result,800,0.75);
     document.getElementById('planNameInput').value='';
     document.getElementById('planNameSheet').classList.add('open');
     setTimeout(()=>document.getElementById('planNameInput').focus(),250);
@@ -460,14 +460,34 @@ function handleFiles(evt){
 function readFile(file,gps){
   const reader=new FileReader();
   reader.onload=async e=>{
+    const compressed=await compressImage(e.target.result,1600,0.8);
     const ts=Date.now();
-    const photo={id:ts+Math.random(),ts,name:'',dataUrl:e.target.result,gps,time:fmtDate(new Date(ts)),pins:[],planId:null,planPos:null};
+    const photo={id:ts+Math.random(),ts,name:'',dataUrl:compressed,gps,time:fmtDate(new Date(ts)),pins:[],planId:null,planPos:null};
     photos.push(photo);
     await dbPut('photos',photo);
     renderGrid();
     openDetail(photo.id,true);
   };
   reader.readAsDataURL(file);
+}
+
+function compressImage(dataUrl,maxPx,quality){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.naturalWidth, h=img.naturalHeight;
+      if(w>maxPx||h>maxPx){
+        if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}
+        else{w=Math.round(w*maxPx/h);h=maxPx;}
+      }
+      const c=document.createElement('canvas');
+      c.width=w;c.height=h;
+      const ctx=c.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      res(c.toDataURL('image/jpeg',quality));
+    };
+    img.src=dataUrl;
+  });
 }
 
 // ══════════════════════════════════════════════════
