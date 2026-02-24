@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Inspektor</title>
+<style>
+:root {
+  --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
+  --acc:#f5a623; --txt:#f2f2f7; --txt2:#8e8e93;
+  --danger:#ff3b30; --green:#34c759; --r:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica Neue',sans-serif;overflow:hidden}
+
+/* SCREENS */
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);transition:transform .28s ease;overflow:hidden}
+.screen.off-right{transform:translateX(100%)}
+.screen.off-left{transform:translateX(-100%)}
+
+/* NAVBAR */
+.navbar{flex-shrink:0;background:var(--s1);border-bottom:1px solid var(--s3);padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));display:flex;align-items:center;gap:8px}
+.navbar-title{flex:1;font-size:15px;font-weight:700;color:var(--acc);letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:8px 13px;border-radius:9px;border:none;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:opacity .15s;font-family:inherit}
+.btn:active{opacity:.65}
+.btn-acc{background:var(--acc);color:#000}
+.btn-ghost{background:var(--s2);color:var(--txt);border:1px solid var(--s3)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-sm{padding:6px 10px;font-size:12px}
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+input[type=file]{display:none}
+
+/* HOME */
+.home-header{margin:14px;background:var(--s1);border-radius:var(--r);padding:14px;border:1px solid var(--s3)}
+.home-header input{width:100%;background:var(--s2);border:1px solid var(--s3);border-radius:8px;padding:10px 12px;color:var(--txt);font-size:15px;font-family:inherit;outline:none}
+.home-header input:focus{border-color:var(--acc)}
+.home-header label{font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px}
+
+/* PLAN LIBRARY */
+.plan-section{margin:0 14px 12px}
+.plan-section-title{font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding-left:2px}
+.plan-lib-list{display:flex;gap:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.plan-lib-card{flex-shrink:0;width:100px;background:var(--s1);border:1px solid var(--s3);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .2s}
+.plan-lib-card:active{border-color:var(--acc)}
+.plan-lib-card img{width:100%;height:64px;object-fit:cover;display:block}
+.plan-lib-card-name{padding:5px 6px;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-add-card{flex-shrink:0;width:100px;height:93px;background:var(--s1);border:2px dashed var(--s3);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;color:var(--txt2);font-size:10px;gap:4px;transition:border-color .2s}
+.plan-add-card:active{border-color:var(--acc);color:var(--acc)}
+
+.photo-grid{padding:0 12px 80px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.photo-card{background:var(--s1);border:1px solid var(--s3);border-radius:var(--r);overflow:hidden;cursor:pointer;transition:border-color .2s}
+.photo-card:active{border-color:var(--acc)}
+.photo-card-thumb{position:relative;aspect-ratio:4/3;background:var(--s2)}
+.photo-card-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.plan-dot-badge{position:absolute;bottom:4px;right:4px;width:14px;height:14px;background:var(--acc);border-radius:50%;border:2px solid #000}
+.pin-count{position:absolute;top:5px;left:5px;background:var(--acc);color:#000;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px}
+.photo-card-info{padding:8px}
+.photo-card-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photo-card-meta{font-size:10px;color:var(--txt2);margin-top:2px}
+
+.empty{text-align:center;padding:60px 24px;color:var(--txt2)}
+.empty-icon{font-size:52px;margin-bottom:14px}
+
+.add-strip{margin:0 12px 12px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.add-btn{background:var(--s1);border:2px dashed var(--s3);border-radius:var(--r);padding:16px 10px;text-align:center;cursor:pointer;color:var(--txt2);font-size:12px;transition:border-color .2s}
+.add-btn:active{border-color:var(--acc);color:var(--acc)}
+.add-btn-icon{font-size:26px;margin-bottom:5px}
+
+/* DETAIL */
+.img-area{flex-shrink:0;position:relative;background:#000;height:52dvh;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none}
+#zoomCanvas{width:100%;height:100%;display:block;touch-action:none}
+.zoom-badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7);color:var(--acc);font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;pointer-events:none;display:none}
+
+.detail-meta{flex-shrink:0;background:var(--s1);border-bottom:1px solid var(--s3);padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.meta-chip{font-size:11px;color:var(--txt2);background:var(--s2);border-radius:6px;padding:3px 8px}
+.meta-chip a{color:var(--acc);text-decoration:none}
+
+.hint-bar{flex-shrink:0;text-align:center;padding:6px;font-size:11px;color:var(--acc);background:rgba(245,166,35,.07);letter-spacing:.03em}
+
+.pin-list{padding:10px;display:flex;flex-direction:column;gap:7px}
+.pin-row{background:var(--s1);border:1px solid var(--s3);border-radius:10px;padding:10px 11px;display:flex;align-items:flex-start;gap:9px;cursor:pointer;transition:border-color .15s}
+.pin-row.sel{border-color:var(--acc)}
+.pin-num{width:24px;height:24px;border-radius:50%;background:var(--acc);color:#000;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pin-text{flex:1;font-size:13px;line-height:1.45;word-break:break-word}
+.pin-text.empty{color:var(--txt2);font-style:italic}
+.pin-del{background:none;border:none;color:var(--txt2);font-size:18px;cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1}
+.pin-del:active{color:var(--danger)}
+
+/* plan position row in detail */
+.plan-pos-row{margin:0 10px 10px;background:var(--s1);border:1px solid var(--s3);border-radius:10px;overflow:hidden;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px;transition:border-color .2s}
+.plan-pos-row:active{border-color:var(--acc)}
+.plan-pos-preview{width:72px;height:54px;position:relative;flex-shrink:0;border-radius:6px;overflow:hidden;background:var(--s2)}
+.plan-pos-preview img{width:100%;height:100%;object-fit:cover;display:block}
+.plan-pos-dot{position:absolute;width:12px;height:12px;background:var(--danger);border:2px solid #fff;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.6)}
+.plan-pos-label{font-size:12px;color:var(--txt2);flex:1;line-height:1.4}
+.plan-pos-label strong{color:var(--txt);display:block;margin-bottom:2px}
+
+/* PLAN PICKER */
+#scrPlan .plan-img-wrap{position:relative;background:#000;flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#planPickImg{max-width:100%;max-height:100%;display:block;pointer-events:none;user-select:none}
+.plan-tap-layer{position:absolute;inset:0;cursor:crosshair}
+.plan-pick-dot{position:absolute;width:22px;height:22px;background:var(--danger);border:3px solid #fff;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 2px 8px rgba(0,0,0,.7);pointer-events:none;z-index:5}
+.plan-hint{flex-shrink:0;text-align:center;padding:10px;font-size:13px;color:var(--acc);background:rgba(245,166,35,.07)}
+.plan-actions{flex-shrink:0;padding:12px;display:flex;gap:8px;background:var(--s1);border-top:1px solid var(--s3)}
+
+/* PLAN SELECT */
+.plan-select-list{padding:14px;display:flex;flex-direction:column;gap:10px}
+.plan-select-card{background:var(--s1);border:1px solid var(--s3);border-radius:var(--r);overflow:hidden;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px;transition:border-color .2s}
+.plan-select-card:active{border-color:var(--acc)}
+.plan-select-card img{width:80px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0}
+.plan-select-card .plan-select-name{font-size:14px;font-weight:600;flex:1}
+
+/* SHEETS */
+.sheet-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:flex-end}
+.sheet-overlay.open{display:flex}
+.sheet{width:100%;background:var(--s1);border-radius:18px 18px 0 0;padding:14px;animation:su .22s ease-out;max-height:80vh;overflow-y:auto}
+@keyframes su{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-title{font-size:13px;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+.sheet-input{width:100%;background:var(--s2);border:1px solid var(--s3);border-radius:9px;padding:10px 12px;color:var(--txt);font-size:15px;font-family:inherit;resize:none;outline:none;min-height:80px}
+.sheet-input:focus{border-color:var(--acc)}
+.sheet-input-line{min-height:auto;padding:12px}
+.sheet-row{display:flex;gap:8px;margin-top:10px}
+
+/* EXPORT */
+.export-body{padding:14px;display:flex;flex-direction:column;gap:12px}
+.stat-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat-box{background:var(--s1);border:1px solid var(--s3);border-radius:var(--r);padding:14px;text-align:center}
+.stat-n{font-size:32px;font-weight:800;color:var(--acc)}
+.stat-l{font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+.info-box{background:var(--s1);border:1px solid var(--s3);border-radius:var(--r);padding:14px;font-size:13px;color:var(--txt2);line-height:1.7}
+.info-box strong{color:var(--txt)}
+.big-btn{width:100%;padding:15px;font-size:15px;border-radius:var(--r)}
+</style>
+</head>
+<body>
+
+<!-- ══ HOME ══ -->
+<div class="screen" id="scrHome">
+  <div class="navbar">
+    <span class="navbar-title">🏗 Inspektor</span>
+    <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
+  </div>
+  <div class="scroll">
+    <div class="home-header">
+      <label>Název prohlídky</label>
+      <input type="text" id="projectName" placeholder="např. Bytový dům Korunní 15" oninput="saveProjectName()">
+      <div style="margin-top:8px;font-size:11px;color:var(--txt2)" id="projectDate"></div>
+    </div>
+
+    <!-- PLAN LIBRARY -->
+    <div class="plan-section">
+      <div class="plan-section-title">📋 Plánky</div>
+      <div class="plan-lib-list" id="planLibList">
+        <div class="plan-add-card" onclick="document.getElementById('filePlan').click()">
+          <div style="font-size:22px">+</div>
+          <div>Přidat plánek</div>
+        </div>
+      </div>
+    </div>
+    <input type="file" id="filePlan" accept="image/*" onchange="handleAddPlan(event)">
+
+    <div class="add-strip">
+      <div class="add-btn" onclick="document.getElementById('filePhoto').click()">
+        <div class="add-btn-icon">📷</div>
+        <div>Přidat fotku</div>
+        <div style="font-size:10px;margin-top:2px">z galerie</div>
+      </div>
+      <div class="add-btn" onclick="document.getElementById('fileCamera').click()">
+        <div class="add-btn-icon">📸</div>
+        <div>Vyfotit teď</div>
+        <div style="font-size:10px;margin-top:2px">fotoaparát</div>
+      </div>
+    </div>
+    <input type="file" id="filePhoto" accept="image/*" multiple onchange="handleFiles(event)">
+    <input type="file" id="fileCamera" accept="image/*" capture="environment" onchange="handleFiles(event)">
+
+    <div class="photo-grid" id="photoGrid"></div>
+    <div class="empty" id="emptyState">
+      <div class="empty-icon">🏠</div>
+      <div>Zatím žádné fotky.<br>Přidejte první fotografii.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ DETAIL ══ -->
+<div class="screen off-right" id="scrDetail">
+  <div class="navbar" style="gap:6px">
+    <button class="btn btn-ghost btn-sm" onclick="goHome()" style="padding:6px 8px">←</button>
+    <button class="btn btn-ghost btn-sm" id="btnPrev" onclick="prevPhoto()" style="padding:6px 8px">‹</button>
+    <span class="navbar-title" id="detailTitle" style="font-size:13px">—</span>
+    <button class="btn btn-ghost btn-sm" id="btnNext" onclick="nextPhoto()" style="padding:6px 8px">›</button>
+    <button class="btn btn-acc btn-sm" onclick="document.getElementById('fileCamera').click()" style="padding:6px 10px">+ Foto</button>
+    <button class="btn btn-danger btn-sm" onclick="deletePhoto()" style="padding:6px 8px">🗑</button>
+  </div>
+  <div class="img-area" id="imgArea">
+    <canvas id="zoomCanvas"></canvas>
+    <div class="zoom-badge" id="zoomBadge">1.0×</div>
+  </div>
+  <div class="detail-meta" id="detailMeta"></div>
+  <div class="hint-bar">Klepněte na fotku → přidejte bod s poznámkou</div>
+  <div class="scroll" id="pinScroll">
+    <div id="planPosRow"></div>
+    <div class="pin-list" id="pinList"></div>
+    <div style="height:10px"></div>
+  </div>
+</div>
+
+<!-- ══ PLAN SELECT ══ -->
+<div class="screen off-right" id="scrPlanSelect">
+  <div class="navbar">
+    <button class="btn btn-ghost btn-sm" onclick="goTo('scrDetail')">← Zpět</button>
+    <span class="navbar-title">Vyberte plánek</span>
+  </div>
+  <div class="scroll">
+    <div class="plan-select-list" id="planSelectList"></div>
+  </div>
+</div>
+
+<!-- ══ PLAN PICKER ══ -->
+<div class="screen off-right" id="scrPlan">
+  <div class="navbar">
+    <button class="btn btn-ghost btn-sm" onclick="cancelPlanPick()">← Zpět</button>
+    <span class="navbar-title" id="planPickTitle">Kde jste na plánku?</span>
+  </div>
+  <div class="plan-hint">Klepněte na místo kde stojíte → automaticky uloží</div>
+  <div class="plan-img-wrap" id="planImgWrap">
+    <img id="planPickImg" src="" alt="">
+    <div class="plan-tap-layer" id="planTapLayer"></div>
+  </div>
+  <div class="plan-actions">
+    <button class="btn btn-ghost" style="flex:1" onclick="cancelPlanPick()">← Zpět</button>
+    <button class="btn btn-danger" style="flex:2" onclick="clearAndSavePlanPos()">Vymazat pozici</button>
+  </div>
+</div>
+
+<!-- ══ EXPORT ══ -->
+<div class="screen off-right" id="scrExport">
+  <div class="navbar">
+    <button class="btn btn-ghost btn-sm" onclick="goHome()">← Zpět</button>
+    <span class="navbar-title">Export dat</span>
+  </div>
+  <div class="scroll">
+    <div class="export-body">
+      <div class="stat-row">
+        <div class="stat-box"><div class="stat-n" id="eStat1">0</div><div class="stat-l">Fotografií</div></div>
+        <div class="stat-box"><div class="stat-n" id="eStat2">0</div><div class="stat-l">Poznámek</div></div>
+      </div>
+      <div class="info-box">
+        <strong>Jak přenést na PC:</strong><br>
+        1. Klepněte "Exportovat ZIP"<br>
+        2. Soubor uložte / sdílejte<br>
+        3. Na PC rozbalte ZIP<br>
+        4. Otevřete <strong>report.html</strong> v prohlížeči
+      </div>
+      <button class="btn btn-acc big-btn" onclick="doExport()" id="exportBtn">⬇ Exportovat ZIP</button>
+      <button class="btn btn-ghost big-btn" onclick="deletePhoto_confirmAll()">🗑 Smazat vše</button>
+    </div>
+  </div>
+</div>
+
+<!-- NOTE SHEET -->
+<div class="sheet-overlay" id="noteSheet" onclick="sheetBg(event,'noteSheet')">
+  <div class="sheet">
+    <div class="sheet-title" id="sheetTitle">Poznámka</div>
+    <textarea class="sheet-input" id="noteTA" placeholder="Rozměr, materiál, stav…" rows="3"></textarea>
+    <div class="sheet-row">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('noteSheet')">Zrušit</button>
+      <button class="btn btn-acc" style="flex:2" onclick="savePin()">Uložit</button>
+    </div>
+  </div>
+</div>
+
+<!-- NAME SHEET -->
+<div class="sheet-overlay" id="nameSheet" onclick="sheetBg(event,'nameSheet')">
+  <div class="sheet">
+    <div class="sheet-title">Název fotky</div>
+    <input class="sheet-input sheet-input-line" id="nameInput" placeholder="např. Fasáda jih, Okno 2NP…" onkeydown="if(event.key==='Enter'){saveName(false);event.preventDefault()}">
+    <div class="sheet-row">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('nameSheet')">Zrušit</button>
+      <button class="btn btn-ghost" style="flex:2" onclick="saveName(true)">Uložit + další foto 📷</button>
+      <button class="btn btn-acc" style="flex:1" onclick="saveName(false)">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAN NAME SHEET -->
+<div class="sheet-overlay" id="planNameSheet" onclick="sheetBg(event,'planNameSheet')">
+  <div class="sheet">
+    <div class="sheet-title">Název plánku</div>
+    <input class="sheet-input sheet-input-line" id="planNameInput" placeholder="např. 2.NP, Střecha, Sklep…" onkeydown="if(event.key==='Enter'){savePlanName();event.preventDefault()}">
+    <div class="sheet-row">
+      <button class="btn btn-ghost" style="flex:1" onclick="cancelPlanAdd()">Zrušit</button>
+      <button class="btn btn-acc" style="flex:2" onclick="savePlanName()">Uložit</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM DELETE SHEET -->
+<div class="sheet-overlay" id="confirmSheet" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="sheet">
+    <div class="sheet-title" style="color:var(--danger)" id="confirmSheetTitle">Smazat?</div>
+    <div style="font-size:14px;color:var(--txt2);margin-bottom:14px" id="confirmSheetMsg">Opravdu smazat?</div>
+    <div class="sheet-row">
+      <button class="btn btn-ghost" style="flex:1" onclick="document.getElementById('confirmSheet').classList.remove('open')">Zrušit</button>
+      <button class="btn btn-danger" style="flex:2" id="confirmSheetBtn" onclick="">Smazat</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+// ══════════════════════════════════════════════════
+// DB
+// ══════════════════════════════════════════════════
+const DB='stavba4', DBV=1;
+let db, photos=[], plans=[], projectName='', projectDate='';
+
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(DB,DBV);
+    r.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains('photos')) d.createObjectStore('photos',{keyPath:'id'});
+      if(!d.objectStoreNames.contains('meta'))   d.createObjectStore('meta',{keyPath:'k'});
+      if(!d.objectStoreNames.contains('plans'))  d.createObjectStore('plans',{keyPath:'id'});
+    };
+    r.onsuccess=e=>{db=e.target.result;res()};
+    r.onerror=rej;
+  });
+}
+function dbAll(s){return new Promise((res,rej)=>{const r=db.transaction(s,'readonly').objectStore(s).getAll();r.onsuccess=()=>res(r.result);r.onerror=rej;})}
+function dbPut(s,o){return new Promise((res,rej)=>{const r=db.transaction(s,'readwrite').objectStore(s).put(o);r.onsuccess=res;r.onerror=rej;})}
+function dbDel(s,k){return new Promise((res,rej)=>{const r=db.transaction(s,'readwrite').objectStore(s).delete(k);r.onsuccess=res;r.onerror=rej;})}
+
+// ══════════════════════════════════════════════════
+// GPS
+// ══════════════════════════════════════════════════
+let lastGPS=null;
+function startGPS(){
+  if(!navigator.geolocation)return;
+  navigator.geolocation.watchPosition(p=>{lastGPS={lat:p.coords.latitude.toFixed(6),lng:p.coords.longitude.toFixed(6),acc:Math.round(p.coords.accuracy)}},()=>{},{enableHighAccuracy:true,maximumAge:10000});
+}
+
+// ══════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════
+openDB().then(async()=>{
+  photos=await dbAll('photos');
+  photos.sort((a,b)=>a.ts-b.ts);
+  plans=await dbAll('plans');
+  plans.sort((a,b)=>a.ts-b.ts);
+  const metas=await dbAll('meta');
+  const pn=metas.find(m=>m.k==='projectName');
+  const pd=metas.find(m=>m.k==='projectDate');
+  if(pn){projectName=pn.v;document.getElementById('projectName').value=pn.v;}
+  if(pd){projectDate=pd.v;}else{projectDate=fmtDate(new Date());dbPut('meta',{k:'projectDate',v:projectDate});}
+  document.getElementById('projectDate').textContent='Zahájeno: '+projectDate;
+  renderGrid();
+  renderPlanLib();
+  startGPS();
+});
+
+function saveProjectName(){projectName=document.getElementById('projectName').value;dbPut('meta',{k:'projectName',v:projectName});}
+function fmtDate(d){return d.toLocaleDateString('cs-CZ')+' '+d.toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'});}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// ══════════════════════════════════════════════════
+// NAV
+// ══════════════════════════════════════════════════
+function goTo(id){
+  document.querySelectorAll('.screen').forEach(s=>{
+    s.classList.remove('off-right','off-left');
+    if(s.id!==id) s.classList.add(s.id==='scrHome'?'off-left':'off-right');
+  });
+  document.getElementById(id).classList.remove('off-right','off-left');
+}
+function goHome(){goTo('scrHome');}
+function showExport(){
+  document.getElementById('eStat1').textContent=photos.length;
+  document.getElementById('eStat2').textContent=photos.reduce((s,p)=>s+p.pins.length,0);
+  goTo('scrExport');
+}
+
+// ══════════════════════════════════════════════════
+// PLAN LIBRARY
+// ══════════════════════════════════════════════════
+let pendingPlanDataUrl=null;
+
+function renderPlanLib(){
+  const list=document.getElementById('planLibList');
+  list.innerHTML=plans.map(pl=>`
+    <div class="plan-lib-card" onclick="showPlanOptions('${pl.id}')">
+      <img src="${pl.dataUrl}" loading="lazy">
+      <div class="plan-lib-card-name">${esc(pl.name)}</div>
+    </div>
+  `).join('')+`
+    <div class="plan-add-card" onclick="document.getElementById('filePlan').click()">
+      <div style="font-size:22px">+</div>
+      <div>Přidat plánek</div>
+    </div>
+  `;
+}
+
+function handleAddPlan(e){
+  const f=e.target.files[0];if(!f)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    pendingPlanDataUrl=ev.target.result;
+    document.getElementById('planNameInput').value='';
+    document.getElementById('planNameSheet').classList.add('open');
+    setTimeout(()=>document.getElementById('planNameInput').focus(),250);
+  };
+  reader.readAsDataURL(f);
+  e.target.value='';
+}
+function cancelPlanAdd(){
+  pendingPlanDataUrl=null;
+  closeSheet('planNameSheet');
+}
+async function savePlanName(){
+  const name=document.getElementById('planNameInput').value.trim()||'Plánek '+(plans.length+1);
+  if(!pendingPlanDataUrl)return;
+  const plan={id:Date.now()+Math.random(),ts:Date.now(),name,dataUrl:pendingPlanDataUrl};
+  plans.push(plan);
+  await dbPut('plans',plan);
+  pendingPlanDataUrl=null;
+  closeSheet('planNameSheet');
+  renderPlanLib();
+}
+
+function showPlanOptions(planId){
+  const pl=plans.find(x=>x.id==planId);
+  if(!pl)return;
+  document.getElementById('confirmSheetTitle').textContent='Plánek: '+pl.name;
+  document.getElementById('confirmSheetMsg').textContent='Smazat tento plánek? Pozice u fotek přiřazených k tomuto plánku se odstraní.';
+  document.getElementById('confirmSheetBtn').onclick=async()=>{
+    // remove plan and all references
+    plans=plans.filter(x=>x.id!=planId);
+    await dbDel('plans',planId);
+    for(const p of photos){
+      if(p.planId==planId){p.planId=null;p.planPos=null;await dbPut('photos',p);}
+    }
+    document.getElementById('confirmSheet').classList.remove('open');
+    renderPlanLib();renderGrid();
+  };
+  document.getElementById('confirmSheet').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════
+// ADD PHOTOS
+// ══════════════════════════════════════════════════
+function handleFiles(evt){
+  const files=Array.from(evt.target.files);if(!files.length)return;
+  const gps=lastGPS?{...lastGPS}:null;
+  files.forEach(f=>readFile(f,gps));
+  evt.target.value='';
+}
+function readFile(file,gps){
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const ts=Date.now();
+    const photo={id:ts+Math.random(),ts,name:'',dataUrl:e.target.result,gps,time:fmtDate(new Date(ts)),pins:[],planId:null,planPos:null};
+    photos.push(photo);
+    await dbPut('photos',photo);
+    renderGrid();
+    openDetail(photo.id,true);
+  };
+  reader.readAsDataURL(file);
+}
+
+// ══════════════════════════════════════════════════
+// GRID
+// ══════════════════════════════════════════════════
+function renderGrid(){
+  const grid=document.getElementById('photoGrid');
+  const empty=document.getElementById('emptyState');
+  empty.style.display=photos.length?'none':'block';
+  grid.innerHTML=photos.map(p=>`
+    <div class="photo-card" onclick="openDetail('${p.id}')">
+      <div class="photo-card-thumb">
+        <img src="${p.dataUrl}" loading="lazy">
+        ${p.planPos?'<div class="plan-dot-badge"></div>':''}
+        <div class="pin-count">${p.pins.length} b</div>
+      </div>
+      <div class="photo-card-info">
+        <div class="photo-card-name">${p.name?esc(p.name):'<em style="color:var(--txt2)">bez názvu</em>'}</div>
+        <div class="photo-card-meta">${p.time}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════════════
+// CANVAS ZOOM ENGINE
+// ══════════════════════════════════════════════════
+const canvas=document.getElementById('zoomCanvas');
+const ctx=canvas.getContext('2d');
+let cImg=null;          // current Image object
+let cScale=1, cMinScale=1, cMaxScale=5;
+let cOffX=0, cOffY=0;   // pan offset in image pixels
+let cImgW=0, cImgH=0;   // natural image size
+let cFitW=0, cFitH=0;   // fitted size at scale=1
+let cFitOX=0, cFitOY=0; // offset to center fitted image in canvas
+
+// touch state
+let tch={}, gesture='none', pinchDist0=0, pinchScale0=1, panStart=null, panOff0=null;
+let tapStart=0, tapXY=null, moved=false;
+
+function cDraw(){
+  const dpr=window.devicePixelRatio||1;
+  const cw=canvas.clientWidth, ch=canvas.clientHeight;
+  if(canvas.width!==cw*dpr||canvas.height!==ch*dpr){canvas.width=cw*dpr;canvas.height=ch*dpr;}
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cw,ch);
+  if(!cImg||!cImg.complete)return;
+
+  const sw=cFitW*cScale, sh=cFitH*cScale;
+  const dx=cFitOX - cOffX*cScale*(cFitW/cImgW);
+  const dy=cFitOY - cOffY*cScale*(cFitH/cImgH);
+  ctx.drawImage(cImg,dx,dy,sw,sh);
+
+  // draw pins
+  const p=getP(); if(!p)return;
+  p.pins.forEach((pin,i)=>{
+    const px=dx+pin.x/100*sw;
+    const py=dy+pin.y/100*sh;
+    // circle
+    ctx.beginPath();ctx.arc(px,py,14,0,Math.PI*2);
+    ctx.fillStyle='#f5a623';ctx.fill();
+    ctx.strokeStyle='#000';ctx.lineWidth=2.5;ctx.stroke();
+    // number
+    ctx.fillStyle='#000';ctx.font='bold 11px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(String(i+1),px,py+0.5);
+  });
+
+  // zoom badge
+  const badge=document.getElementById('zoomBadge');
+  if(cScale>1.05){badge.textContent=cScale.toFixed(1)+'×';badge.style.display='block';}
+  else{badge.style.display='none';}
+}
+
+function cLoadImage(dataUrl){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      cImg=img; cImgW=img.naturalWidth; cImgH=img.naturalHeight;
+      cResetView();
+      res();
+    };
+    img.src=dataUrl;
+  });
+}
+
+function cResetView(){
+  cScale=1;cOffX=0;cOffY=0;
+  const cw=canvas.clientWidth, ch=canvas.clientHeight;
+  const ratioW=cw/cImgW, ratioH=ch/cImgH;
+  const fit=Math.min(ratioW,ratioH);
+  cFitW=cImgW*fit; cFitH=cImgH*fit;
+  cFitOX=(cw-cFitW)/2; cFitOY=(ch-cFitH)/2;
+  cMinScale=1;
+  cDraw();
+}
+
+function cClamp(){
+  if(cScale<cMinScale)cScale=cMinScale;
+  if(cScale>cMaxScale)cScale=cMaxScale;
+  // clamp pan so image stays within view
+  const maxOX=cImgW*(1-1/cScale)/2;
+  const maxOY=cImgH*(1-1/cScale)/2;
+  if(maxOX>0){cOffX=Math.max(-maxOX,Math.min(maxOX,cOffX));}else{cOffX=0;}
+  if(maxOY>0){cOffY=Math.max(-maxOY,Math.min(maxOY,cOffY));}else{cOffY=0;}
+}
+
+// convert canvas client coords to image % coords
+function cClientToImgPct(cx,cy){
+  const rect=canvas.getBoundingClientRect();
+  const x=cx-rect.left, y=cy-rect.top;
+  const sw=cFitW*cScale, sh=cFitH*cScale;
+  const dx=cFitOX - cOffX*cScale*(cFitW/cImgW);
+  const dy=cFitOY - cOffY*cScale*(cFitH/cImgH);
+  const pctX=(x-dx)/sw*100;
+  const pctY=(y-dy)/sh*100;
+  if(pctX<0||pctX>100||pctY<0||pctY>100)return null;
+  return {x:pctX,y:pctY};
+}
+
+function dist(a,b){return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);}
+
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const touches=e.touches;
+  if(touches.length===1){
+    gesture='pan';
+    panStart={x:touches[0].clientX,y:touches[0].clientY};
+    panOff0={x:cOffX,y:cOffY};
+    tapStart=Date.now();
+    tapXY={x:touches[0].clientX,y:touches[0].clientY};
+    moved=false;
+  } else if(touches.length===2){
+    gesture='pinch';
+    pinchDist0=dist(touches[0],touches[1]);
+    pinchScale0=cScale;
+    moved=true; // not a tap
+  }
+},{passive:false});
+
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const touches=e.touches;
+  if(gesture==='pan'&&touches.length===1){
+    const dx=touches[0].clientX-panStart.x;
+    const dy=touches[0].clientY-panStart.y;
+    if(Math.abs(dx)>4||Math.abs(dy)>4)moved=true;
+    if(cScale>1.05){
+      // convert screen px to image px
+      const factor=cImgW/cFitW/cScale;
+      cOffX=panOff0.x-dx*factor;
+      cOffY=panOff0.y-dy*factor;
+      cClamp();cDraw();
+    }
+  } else if(gesture==='pinch'&&touches.length===2){
+    const d=dist(touches[0],touches[1]);
+    cScale=pinchScale0*(d/pinchDist0);
+    cClamp();cDraw();
+  }
+},{passive:false});
+
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  if(e.touches.length===0){
+    if(!moved && (Date.now()-tapStart)<350 && tapXY){
+      handleCanvasTap(tapXY.x,tapXY.y);
+    }
+    gesture='none';
+  } else if(e.touches.length===1){
+    // went from pinch to single finger – reset pan origin
+    gesture='pan';
+    panStart={x:e.touches[0].clientX,y:e.touches[0].clientY};
+    panOff0={x:cOffX,y:cOffY};
+  }
+},{passive:false});
+
+// mouse fallback for testing on desktop
+canvas.addEventListener('click',e=>{
+  handleCanvasTap(e.clientX,e.clientY);
+});
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const delta=e.deltaY>0?0.9:1.1;
+  cScale*=delta;cClamp();cDraw();
+},{passive:false});
+
+window.addEventListener('resize',()=>{
+  // only auto-reset if no sheet is open (keyboard not active)
+  const sheetOpen=document.querySelector('.sheet-overlay.open');
+  if(cImg && !sheetOpen) cResetView();
+});
+
+// ══════════════════════════════════════════════════
+// DETAIL
+// ══════════════════════════════════════════════════
+let curId=null, editPinId=null, pendingXY=null;
+
+function openDetail(id,promptName){
+  curId=id;
+  const p=photos.find(x=>x.id==id);
+  document.getElementById('detailTitle').textContent=p.name||'bez názvu';
+  renderDetailMeta(p);
+  renderPinList(p);
+  updateNavBtns();
+  goTo('scrDetail');
+  // force canvas size recalculation
+  canvas.width=0;canvas.height=0;
+  requestAnimationFrame(()=>{
+    cLoadImage(p.dataUrl);
+  });
+  if(promptName) setTimeout(()=>openNameSheet(p),400);
+}
+function getP(){return photos.find(x=>x.id==curId);}
+
+function renderDetailMeta(p){
+  let html=`<span class="meta-chip">🕐 ${p.time}</span>`;
+  if(p.gps) html+=`<span class="meta-chip"><a href="https://www.google.com/maps?q=${p.gps.lat},${p.gps.lng}" target="_blank">📍 ${p.gps.lat}, ${p.gps.lng} ±${p.gps.acc}m</a></span>`;
+  else html+=`<span class="meta-chip" style="color:var(--txt2)">📍 GPS nedostupné</span>`;
+  document.getElementById('detailMeta').innerHTML=html;
+}
+
+function handleCanvasTap(cx,cy){
+  const pct=cClientToImgPct(cx,cy);
+  if(!pct)return;
+  pendingXY={x:pct.x,y:pct.y};
+  editPinId=null;
+  const p=getP();
+  document.getElementById('sheetTitle').textContent=`Nový bod ${p.pins.length+1}`;
+  document.getElementById('noteTA').value='';
+  document.getElementById('noteSheet').classList.add('open');
+  // don't reset zoom here – reset happens after save when keyboard is gone
+}
+
+function renderPinList(p){
+  // Plan position row
+  const pr=document.getElementById('planPosRow');
+  if(plans.length>0){
+    const hasPlan=p.planId && plans.find(x=>x.id==p.planId);
+    const planObj=hasPlan?plans.find(x=>x.id==p.planId):null;
+    if(hasPlan && p.planPos){
+      pr.innerHTML=`<div class="plan-pos-row" onclick="openPlanPicker()">
+        <div class="plan-pos-preview">
+          <img src="${planObj.dataUrl}">
+          <div class="plan-pos-dot" style="left:${p.planPos.x}%;top:${p.planPos.y}%"></div>
+        </div>
+        <div class="plan-pos-label">
+          <strong>${esc(planObj.name)} – pozice označena</strong>
+          Klepněte pro změnu
+        </div>
+      </div>`;
+    } else {
+      pr.innerHTML=`<div class="plan-pos-row" onclick="openPlanSelect()">
+        <div class="plan-pos-preview" style="display:flex;align-items:center;justify-content:center;font-size:20px">📋</div>
+        <div class="plan-pos-label">
+          <strong>Označit pozici na plánku</strong>
+          Vyberte plánek a klepněte kde stojíte
+        </div>
+      </div>`;
+    }
+  } else {
+    pr.innerHTML=`<div style="margin:0 10px 8px;font-size:12px;color:var(--txt2);padding:8px;background:var(--s1);border-radius:8px;border:1px solid var(--s3)">
+      ℹ️ Nahrajte plánky na hlavní obrazovce pro označení pozice.
+    </div>`;
+  }
+
+  const list=document.getElementById('pinList');
+  if(!p.pins.length){list.innerHTML='<div style="text-align:center;color:var(--txt2);font-size:13px;padding:20px 0">Žádné body – klepněte na fotku</div>';return;}
+  list.innerHTML=p.pins.map((pin,i)=>`
+    <div class="pin-row ${editPinId==pin.id?'sel':''}" id="pr-${pin.id}" onclick="editPin('${pin.id}')">
+      <div class="pin-num">${i+1}</div>
+      <div class="pin-text ${pin.text?'':'empty'}">${pin.text?esc(pin.text):'klepněte pro text'}</div>
+      <button class="pin-del" onclick="delPin(event,'${pin.id}')">✕</button>
+    </div>
+  `).join('');
+}
+
+function editPin(pinId){
+  const p=getP(); const pin=p.pins.find(x=>x.id==pinId);
+  editPinId=pinId; pendingXY=null;
+  const i=p.pins.indexOf(pin)+1;
+  document.getElementById('sheetTitle').textContent=`Bod ${i} – upravit`;
+  document.getElementById('noteTA').value=pin.text||'';
+  document.getElementById('noteSheet').classList.add('open');
+}
+async function savePin(){
+  const text=document.getElementById('noteTA').value.trim();
+  const p=getP();
+  if(editPinId){const pin=p.pins.find(x=>x.id==editPinId);if(pin)pin.text=text;}
+  else if(pendingXY){p.pins.push({id:Date.now()+Math.random(),x:pendingXY.x,y:pendingXY.y,text});}
+  await dbPut('photos',p);
+  closeSheet('noteSheet');
+  // blur to dismiss keyboard
+  document.activeElement&&document.activeElement.blur();
+  // fully re-open detail after keyboard is gone
+  waitForViewportStable(()=>{
+    openDetail(curId,false);
+  });
+}
+
+// Wait until iOS viewport stops resizing (keyboard fully dismissed)
+function waitForViewportStable(cb){
+  let last=window.innerHeight, checks=0, stable=0;
+  const iv=setInterval(()=>{
+    const h=window.innerHeight;
+    if(h===last){stable++;}else{stable=0;last=h;}
+    checks++;
+    if(stable>=3||checks>=25){ clearInterval(iv); setTimeout(cb,100); }
+  },100);
+}
+async function delPin(e,pinId){
+  e.stopPropagation();
+  const p=getP(); p.pins=p.pins.filter(x=>x.id!=pinId);
+  await dbPut('photos',p); cDraw(); renderPinList(p);
+}
+function deletePhoto(){
+  document.getElementById('confirmSheetTitle').textContent='Smazat fotku?';
+  document.getElementById('confirmSheetMsg').textContent='Fotka a všechny její body budou trvale odstraněny.';
+  document.getElementById('confirmSheetBtn').onclick=confirmDeletePhoto;
+  document.getElementById('confirmSheet').classList.add('open');
+}
+async function confirmDeletePhoto(){
+  document.getElementById('confirmSheet').classList.remove('open');
+  await dbDel('photos',curId); photos=photos.filter(x=>x.id!=curId);
+  renderGrid(); goTo('scrHome');
+}
+
+// ══════════════════════════════════════════════════
+// PLAN SELECT (choose which plan for this photo)
+// ══════════════════════════════════════════════════
+function openPlanSelect(){
+  const list=document.getElementById('planSelectList');
+  list.innerHTML=plans.map(pl=>`
+    <div class="plan-select-card" onclick="selectPlanForPhoto('${pl.id}')">
+      <img src="${pl.dataUrl}">
+      <div class="plan-select-name">${esc(pl.name)}</div>
+    </div>
+  `).join('');
+  goTo('scrPlanSelect');
+}
+
+function selectPlanForPhoto(planId){
+  const p=getP();
+  p.planId=planId;
+  dbPut('photos',p);
+  openPlanPickerWithPlan(planId);
+}
+
+// ══════════════════════════════════════════════════
+// PLAN PICKER (mark position on plan)
+// ══════════════════════════════════════════════════
+let tempPlanPos=null;
+
+function openPlanPicker(){
+  const p=getP();
+  if(!p.planId)return openPlanSelect();
+  openPlanPickerWithPlan(p.planId);
+}
+
+function openPlanPickerWithPlan(planId){
+  const pl=plans.find(x=>x.id==planId);
+  if(!pl)return;
+  const p=getP();
+  tempPlanPos=p.planPos?{...p.planPos}:null;
+  document.getElementById('planPickImg').src=pl.dataUrl;
+  document.getElementById('planPickTitle').textContent=pl.name+' – kde stojíte?';
+  goTo('scrPlan');
+  setTimeout(()=>renderPlanDot(),300);
+}
+
+function cancelPlanPick(){goTo('scrDetail');}
+
+document.getElementById('planPickImg').addEventListener('load',renderPlanDot);
+
+document.getElementById('planTapLayer').addEventListener('click',async function(e){
+  const img=document.getElementById('planPickImg');
+  const ir=img.getBoundingClientRect();
+  if(e.clientX<ir.left||e.clientX>ir.right||e.clientY<ir.top||e.clientY>ir.bottom)return;
+  tempPlanPos={x:(e.clientX-ir.left)/ir.width*100,y:(e.clientY-ir.top)/ir.height*100};
+  renderPlanDot();
+  // auto-save and return
+  setTimeout(async()=>{
+    const p=getP();
+    p.planPos=tempPlanPos;
+    await dbPut('photos',p);
+    renderPinList(p);
+    renderGrid();
+    goTo('scrDetail');
+  },400);
+});
+
+function renderPlanDot(){
+  document.querySelectorAll('.plan-pick-dot').forEach(e=>e.remove());
+  if(!tempPlanPos)return;
+  const img=document.getElementById('planPickImg');
+  const wrap=document.getElementById('planImgWrap');
+  const ir=img.getBoundingClientRect();
+  const wr=wrap.getBoundingClientRect();
+  const dot=document.createElement('div');
+  dot.className='plan-pick-dot';
+  dot.style.left=(ir.left-wr.left+tempPlanPos.x/100*ir.width)+'px';
+  dot.style.top=(ir.top-wr.top+tempPlanPos.y/100*ir.height)+'px';
+  wrap.appendChild(dot);
+}
+
+async function clearAndSavePlanPos(){
+  tempPlanPos=null;
+  const p=getP(); p.planPos=null; p.planId=null;
+  await dbPut('photos',p);
+  renderPinList(p); renderGrid();
+  goTo('scrDetail');
+}
+
+// ══════════════════════════════════════════════════
+// NAME SHEET
+// ══════════════════════════════════════════════════
+function openNameSheet(p){
+  document.getElementById('nameInput').value=p.name||'';
+  document.getElementById('nameSheet').classList.add('open');
+  setTimeout(()=>document.getElementById('nameInput').focus(),250);
+}
+async function saveName(andNext){
+  const val=document.getElementById('nameInput').value.trim();
+  const p=getP(); p.name=val;
+  await dbPut('photos',p);
+  document.getElementById('detailTitle').textContent=val||'bez názvu';
+  closeSheet('nameSheet'); renderGrid();
+  if(andNext) document.getElementById('fileCamera').click();
+}
+
+// ══════════════════════════════════════════════════
+// PREV / NEXT
+// ══════════════════════════════════════════════════
+function prevPhoto(){
+  const idx=photos.findIndex(x=>x.id==curId);
+  if(idx>0) openDetail(photos[idx-1].id,false);
+}
+function nextPhoto(){
+  const idx=photos.findIndex(x=>x.id==curId);
+  if(idx<photos.length-1) openDetail(photos[idx+1].id,false);
+}
+function updateNavBtns(){
+  const idx=photos.findIndex(x=>x.id==curId);
+  document.getElementById('btnPrev').disabled=idx<=0;
+  document.getElementById('btnNext').disabled=idx>=photos.length-1;
+}
+
+// ══════════════════════════════════════════════════
+// SHEETS
+// ══════════════════════════════════════════════════
+function closeSheet(id){
+  document.getElementById(id).classList.remove('open');
+  if(id==='noteSheet'){editPinId=null;pendingXY=null;}
+}
+function sheetBg(e,id){if(e.target===e.currentTarget)closeSheet(id);}
+
+// ══════════════════════════════════════════════════
+// CLEAR ALL
+// ══════════════════════════════════════════════════
+function deletePhoto_confirmAll(){
+  document.getElementById('confirmSheetTitle').textContent='Smazat vše?';
+  document.getElementById('confirmSheetMsg').textContent='Všechny fotky, plánky a data budou trvale odstraněny.';
+  document.getElementById('confirmSheetBtn').onclick=clearAll;
+  document.getElementById('confirmSheet').classList.add('open');
+}
+async function clearAll(){
+  document.getElementById('confirmSheet').classList.remove('open');
+  for(const p of photos) await dbDel('photos',p.id);
+  for(const pl of plans) await dbDel('plans',pl.id);
+  photos=[]; plans=[]; projectName=''; projectDate='';
+  ['projectName','projectDate'].forEach(k=>dbDel('meta',k));
+  document.getElementById('projectName').value='';
+  document.getElementById('projectDate').textContent='';
+  renderPlanLib(); renderGrid(); goHome();
+}
+
+// ══════════════════════════════════════════════════
+// EXPORT
+// ══════════════════════════════════════════════════
+async function doExport(){
+  if(!photos.length){alert('Žádné fotky.');return;}
+  const btn=document.getElementById('exportBtn');
+  btn.textContent='Připravuji…'; btn.disabled=true;
+  try{
+    const zip=new JSZip();
+    const folder=zip.folder('fotky');
+    const planFolder=zip.folder('planky');
+    const exportData=[];
+
+    // plans
+    const planFiles={};
+    for(let i=0;i<plans.length;i++){
+      const pl=plans[i];
+      const fname=`plan_${String(i+1).padStart(2,'0')}.jpg`;
+      planFolder.file(fname,pl.dataUrl.split(',')[1],{base64:true});
+      planFiles[pl.id]={file:'planky/'+fname,name:pl.name};
+    }
+
+    for(let i=0;i<photos.length;i++){
+      const p=photos[i];
+      const fname=`foto_${String(i+1).padStart(3,'0')}.jpg`;
+      folder.file(fname,p.dataUrl.split(',')[1],{base64:true});
+      const planInfo=p.planId&&planFiles[p.planId]?{file:planFiles[p.planId].file,name:planFiles[p.planId].name,pos:p.planPos}:null;
+      exportData.push({idx:i+1,name:p.name,time:p.time,gps:p.gps,file:'fotky/'+fname,pins:p.pins,plan:planInfo});
+    }
+
+    zip.file('report.html',buildViewer(exportData,projectName,projectDate));
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    const safe=(projectName||'prohlidka').replace(/[^a-z0-9áčďéěíňóřšťůúýž _-]/gi,'').replace(/\s+/g,'_');
+    a.href=url; a.download=safe+'_'+new Date().toISOString().slice(0,10)+'.zip';
+    a.click(); setTimeout(()=>URL.revokeObjectURL(url),5000);
+  }catch(e){alert('Chyba: '+e.message);}
+  btn.textContent='⬇ Exportovat ZIP'; btn.disabled=false;
+}
+
+// ══════════════════════════════════════════════════
+// PC VIEWER (embedded in export ZIP)
+// ══════════════════════════════════════════════════
+function buildViewer(data,pName,pDate){
+return `<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(pName||'Prohlídka')} – Report</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9/dist/leaflet.js"><\\/script>
+<style>
+:root{--bg:#f5f5f7;--s1:#fff;--s2:#e8e8ed;--acc:#f5a623;--txt:#1d1d1f;--txt2:#6e6e73;--r:10px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica Neue',sans-serif;display:flex;flex-direction:column;height:100vh}
+.header{background:var(--s1);border-bottom:1px solid var(--s2);padding:16px 20px}
+.header h1{font-size:20px;font-weight:700;color:var(--acc)}
+.header .meta{font-size:12px;color:var(--txt2);margin-top:4px}
+.main{flex:1;display:flex;overflow:hidden}
+.thumb-panel{width:180px;background:var(--s1);border-right:1px solid var(--s2);overflow-y:auto;flex-shrink:0}
+.thumb-item{padding:8px;cursor:pointer;border-bottom:1px solid var(--s2);transition:background .15s}
+.thumb-item:hover,.thumb-item.sel{background:#f0e6d0}
+.thumb-item img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;display:block}
+.thumb-info{margin-top:5px}
+.thumb-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumb-meta{font-size:10px;color:var(--txt2)}
+.thumb-pins{font-size:10px;color:var(--acc);font-weight:600;margin-top:1px}
+.content{flex:1;display:flex;overflow:hidden}
+.img-col{flex:1;background:#222;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.img-col img{max-width:100%;max-height:100%;display:block}
+.pin-mark{position:absolute;width:26px;height:26px;transform:translate(-50%,-50%);cursor:pointer;z-index:5}
+.pin-mark-inner{width:100%;height:100%;border-radius:50%;background:#f5a623;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#000;box-shadow:0 1px 6px rgba(0,0,0,.5)}
+.pin-mark.hl .pin-mark-inner{background:#fff;border-color:#f5a623;color:#f5a623}
+.notes-col{width:300px;background:var(--s1);border-left:1px solid var(--s2);display:flex;flex-direction:column;overflow:hidden}
+.notes-header{padding:14px;border-bottom:1px solid var(--s2)}
+.notes-title{font-size:16px;font-weight:700}
+.notes-meta-row{font-size:11px;color:var(--txt2);margin-top:4px}
+.notes-meta-row a{color:var(--acc)}
+.notes-list{flex:1;overflow-y:auto;padding:10px}
+.note-row{display:flex;gap:8px;padding:8px;border-radius:8px;cursor:pointer;transition:background .15s;align-items:flex-start}
+.note-row:hover,.note-row.hl{background:#f0e6d0}
+.note-num{width:22px;height:22px;border-radius:50%;background:var(--acc);color:#000;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.note-text{font-size:13px;line-height:1.45;flex:1}
+.plan-section{border-top:1px solid var(--s2);padding:10px}
+.plan-section img{width:100%;border-radius:6px;display:block}
+.plan-section-wrap{position:relative;display:inline-block;width:100%}
+.plan-dot-view{position:absolute;width:14px;height:14px;background:#ff3b30;border:2px solid #fff;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.nav-bar{padding:8px 14px;border-top:1px solid var(--s2);display:flex;gap:8px;align-items:center}
+.nav-bar button{padding:6px 14px;border:1px solid var(--s2);border-radius:6px;background:var(--s1);cursor:pointer;font-size:13px;font-weight:600}
+.nav-bar button:hover{background:#f0e6d0}
+.nav-bar span{flex:1;text-align:center;font-size:12px;color:var(--txt2)}
+#mapContainer{height:300px;border-top:1px solid var(--s2);display:none}
+.map-toggle{padding:8px 14px;border-top:1px solid var(--s2);text-align:center}
+.map-toggle a{color:var(--acc);cursor:pointer;font-size:13px;font-weight:600;text-decoration:none}
+.plan-label{font-size:11px;color:var(--txt2);margin-bottom:4px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>${esc(pName||'Prohlídka')}</h1>
+  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek</div>
+</div>
+<div class="main">
+  <div class="thumb-panel" id="thumbPanel"></div>
+  <div class="content">
+    <div class="img-col" id="imgContainer"><img id="mainImg" src=""></div>
+    <div class="notes-col">
+      <div class="notes-header">
+        <div class="notes-title" id="notesTitle">—</div>
+        <div id="notesMeta"></div>
+      </div>
+      <div class="notes-list" id="notesList"></div>
+      <div id="planSection" style="display:none">
+        <div class="plan-section">
+          <div class="plan-label" id="planLabel"></div>
+          <div class="plan-section-wrap" id="planWrap">
+            <img id="planImg" src="">
+            <div class="plan-dot-view" id="planDot" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+      <div class="nav-bar">
+        <button onclick="prev()">← Předchozí</button>
+        <span id="navInfo">1 / ${data.length}</span>
+        <button onclick="next()">Další →</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="map-toggle"><a onclick="toggleMap()">🗺 Zobrazit/skrýt mapu</a></div>
+<div id="mapContainer"></div>
+<script>
+const DATA=${JSON.stringify(data)};
+let cur=0, map=null, mapOn=false;
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// thumbs
+document.getElementById('thumbPanel').innerHTML=DATA.map((p,i)=>\`
+  <div class="thumb-item" id="th-\${i}" onclick="show(\${i})">
+    <img src="\${p.file}" loading="lazy">
+    <div class="thumb-info">
+      <div class="thumb-name">\${esc(p.name||'Foto '+p.idx)}</div>
+      <div class="thumb-meta">\${p.time}</div>
+      <div class="thumb-pins">\${p.pins.length} pozn. \${p.plan?'· 📋':''}</div>
+    </div>
+  </div>
+\`).join('');
+
+function show(i){
+  cur=i; const p=DATA[i];
+  document.querySelectorAll('.thumb-item').forEach(e=>e.classList.remove('sel'));
+  const th=document.getElementById('th-'+i);if(th){th.classList.add('sel');th.scrollIntoView({block:'nearest'});}
+
+  const img=document.getElementById('mainImg');
+  img.src=p.file;
+  document.getElementById('notesTitle').textContent=p.name||('Foto '+p.idx);
+  document.getElementById('navInfo').textContent=(i+1)+' / '+DATA.length;
+
+  let meta=\`<div class="notes-meta-row">🕐 \${p.time}</div>\`;
+  if(p.gps) meta+=\`<div class="notes-meta-row"><a href="https://www.google.com/maps?q=\${p.gps.lat},\${p.gps.lng}" target="_blank">📍 \${p.gps.lat}, \${p.gps.lng} ±\${p.gps.acc}m</a></div>\`;
+  document.getElementById('notesMeta').innerHTML=meta;
+
+  document.getElementById('notesList').innerHTML=p.pins.length
+    ? p.pins.map((pin,j)=>\`<div class="note-row" id="nr-\${j}" onclick="hlPin(\${j})"><div class="note-num">\${j+1}</div><div class="note-text">\${esc(pin.text||'—')}</div></div>\`).join('')
+    : '<div style="padding:18px;color:#aaa;font-size:13px;text-align:center">Bez poznámek</div>';
+
+  // plan
+  const ps=document.getElementById('planSection');
+  if(p.plan && p.plan.pos){
+    ps.style.display='block';
+    document.getElementById('planLabel').textContent=p.plan.name||'Plánek';
+    document.getElementById('planImg').src=p.plan.file;
+    const dot=document.getElementById('planDot');
+    dot.style.display='block';
+    dot.style.left=p.plan.pos.x+'%';
+    dot.style.top=p.plan.pos.y+'%';
+  } else { ps.style.display='none'; }
+
+  document.querySelectorAll('.pin-mark').forEach(e=>e.remove());
+  img.onload=()=>positionPins(p);
+  if(img.complete)positionPins(p);
+
+  if(map)map.invalidateSize();
+}
+
+function positionPins(p){
+  document.querySelectorAll('.pin-mark').forEach(e=>e.remove());
+  const img=document.getElementById('mainImg');
+  const con=document.getElementById('imgContainer');
+  const ir=img.getBoundingClientRect(); const cr=con.getBoundingClientRect();
+  p.pins.forEach((pin,i)=>{
+    const el=document.createElement('div');
+    el.className='pin-mark'; el.dataset.j=i;
+    el.innerHTML=\`<div class="pin-mark-inner">\${i+1}</div>\`;
+    el.style.left=(ir.left-cr.left+pin.x/100*ir.width)+'px';
+    el.style.top=(ir.top-cr.top+pin.y/100*ir.height)+'px';
+    el.addEventListener('click',()=>hlPin(i));
+    con.appendChild(el);
+  });
+}
+
+function hlPin(j){
+  document.querySelectorAll('.pin-mark').forEach(e=>e.classList.remove('hl'));
+  document.querySelectorAll('.note-row').forEach(e=>e.classList.remove('hl'));
+  const pm=document.querySelector(\`.pin-mark[data-j="\${j}"]\`);if(pm)pm.classList.add('hl');
+  const nr=document.getElementById('nr-'+j);if(nr){nr.classList.add('hl');nr.scrollIntoView({block:'nearest'});}
+}
+
+function prev(){if(cur>0)show(cur-1);}
+function next(){if(cur<DATA.length-1)show(cur+1);}
+document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')prev();if(e.key==='ArrowRight')next();});
+window.addEventListener('resize',()=>{if(DATA[cur])positionPins(DATA[cur]);});
+
+function toggleMap(){
+  mapOn=!mapOn;
+  const mc=document.getElementById('mapContainer');
+  mc.style.display=mapOn?'block':'none';
+  if(mapOn&&!map)initMap();else if(map)map.invalidateSize();
+}
+function initMap(){
+  const pts=DATA.filter(p=>p.gps);
+  if(!pts.length){document.getElementById('mapContainer').innerHTML='<div style="padding:16px;color:#aaa;font-size:12px;text-align:center">Žádné GPS souřadnice</div>';return;}
+  map=L.map('mapContainer');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OSM',maxZoom:19}).addTo(map);
+  const icon=L.divIcon({className:'',html:'<div style="width:18px;height:18px;background:#f5a623;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#000;box-shadow:0 1px 5px rgba(0,0,0,.5)"></div>',iconSize:[18,18],iconAnchor:[9,9]});
+  const bounds=[];
+  pts.forEach(p=>{
+    const lat=parseFloat(p.gps.lat),lng=parseFloat(p.gps.lng);
+    bounds.push([lat,lng]);
+    const m=L.marker([lat,lng],{icon}).addTo(map);
+    m.bindPopup(\`<b>\${esc(p.name||'Foto '+p.idx)}</b><br>\${p.time}<br>\${p.pins.length} poznámek\`);
+    m.on('click',()=>show(DATA.indexOf(p)));
+  });
+  map.fitBounds(bounds,{padding:[16,16]});
+}
+
+if(DATA.length)show(0);
+<\\/script>
+</body>
+</html>`;
+}
+</script>
+</body>
+</html>
