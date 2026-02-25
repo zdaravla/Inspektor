@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>Inspektor v5.3</title>
+<title>Inspektor v5.4</title>
 <style>
 :root {
   --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
@@ -132,6 +132,13 @@ input[type=file]{display:none}
 .info-box{background:var(--s1);border:1px solid var(--s3);border-radius:var(--r);padding:14px;font-size:13px;color:var(--txt2);line-height:1.7}
 .info-box strong{color:var(--txt)}
 .big-btn{width:100%;padding:15px;font-size:15px;border-radius:var(--r)}
+
+/* CALIBRATION MODE */
+.mode-active{background:#2196F3!important;color:#fff!important;border-color:#1976D2!important}
+.cal-pin-row{background:var(--s1);border:1px solid #2196F3;border-radius:10px;padding:10px 11px;display:flex;align-items:flex-start;gap:9px;cursor:pointer;transition:border-color .15s}
+.cal-pin-row.sel{border-color:#fff;box-shadow:0 0 0 2px #2196F3}
+.cal-num{width:24px;height:24px;border-radius:50%;background:#2196F3;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.cal-section-title{font-size:11px;color:#2196F3;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px;padding-left:2px;font-weight:700}
 </style>
 </head>
 <body>
@@ -139,7 +146,7 @@ input[type=file]{display:none}
 <!-- ══ HOME ══ -->
 <div class="screen" id="scrHome">
   <div class="navbar">
-    <span class="navbar-title">🏗 Inspektor v5.3</span>
+    <span class="navbar-title">🏗 Inspektor v5.4</span>
     <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
   </div>
   <div class="scroll">
@@ -199,7 +206,10 @@ input[type=file]{display:none}
     <div class="zoom-badge" id="zoomBadge">1.0×</div>
   </div>
   <div class="detail-meta" id="detailMeta"></div>
-  <div class="hint-bar">Klepněte na fotku → přidejte bod s poznámkou</div>
+  <div class="hint-bar" id="hintBar" style="display:flex;align-items:center;justify-content:center;gap:10px">
+    <span id="hintText">Klepněte na fotku → přidejte bod s poznámkou</span>
+    <button class="btn btn-sm" id="modeBtn" onclick="toggleMode()" style="padding:4px 10px;font-size:11px;background:var(--s2);color:var(--txt);border:1px solid var(--s3)">📏 Měření</button>
+  </div>
   <div class="scroll" id="pinScroll">
     <div id="planPosRow"></div>
     <div class="pin-list" id="pinList"></div>
@@ -293,6 +303,19 @@ input[type=file]{display:none}
     <div class="sheet-row">
       <button class="btn btn-ghost" style="flex:1" onclick="cancelPlanAdd()">Zrušit</button>
       <button class="btn btn-acc" style="flex:2" onclick="savePlanName()">Uložit</button>
+    </div>
+  </div>
+</div>
+
+<!-- CALIBRATION SHEET -->
+<div class="sheet-overlay" id="calSheet" onclick="sheetBg(event,'calSheet')">
+  <div class="sheet">
+    <div class="sheet-title" style="color:#2196F3" id="calSheetTitle">📏 Kalibrační bod</div>
+    <div style="font-size:12px;color:var(--txt2);margin-bottom:8px">Vzdálenost od objektivu k tomuto bodu v mm</div>
+    <input class="sheet-input sheet-input-line" id="calDistInput" type="number" inputmode="numeric" placeholder="např. 8500" onkeydown="if(event.key==='Enter'){saveCalPin();event.preventDefault()}">
+    <div class="sheet-row">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('calSheet')">Zrušit</button>
+      <button class="btn" style="flex:2;background:#2196F3;color:#fff" onclick="saveCalPin()">Uložit</button>
     </div>
   </div>
 </div>
@@ -518,7 +541,7 @@ function renderGrid(){
 const canvas=document.getElementById('zoomCanvas');
 const ctx=canvas.getContext('2d');
 let cImg=null;          // current Image object
-let cScale=1, cMinScale=1, cMaxScale=10;
+let cScale=1, cMinScale=1, cMaxScale=20;
 let cOffX=0, cOffY=0;   // pan offset in image pixels
 let cImgW=0, cImgH=0;   // natural image size
 let cFitW=0, cFitH=0;   // fitted size at scale=1
@@ -541,18 +564,28 @@ function cDraw(){
   const dy=cFitOY - cOffY*cScale*(cFitH/cImgH);
   ctx.drawImage(cImg,dx,dy,sw,sh);
 
-  // draw pins
+  // draw documentation pins (yellow)
   const p=getP(); if(!p)return;
   p.pins.forEach((pin,i)=>{
     const px=dx+pin.x/100*sw;
     const py=dy+pin.y/100*sh;
-    // circle
     ctx.beginPath();ctx.arc(px,py,14,0,Math.PI*2);
     ctx.fillStyle='#f5a623';ctx.fill();
     ctx.strokeStyle='#000';ctx.lineWidth=2.5;ctx.stroke();
-    // number
     ctx.fillStyle='#000';ctx.font='bold 11px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText(String(i+1),px,py+0.5);
+  });
+
+  // draw calibration pins (blue)
+  const calPins=p.calPins||[];
+  calPins.forEach((pin,i)=>{
+    const px=dx+pin.x/100*sw;
+    const py=dy+pin.y/100*sh;
+    ctx.beginPath();ctx.arc(px,py,14,0,Math.PI*2);
+    ctx.fillStyle='#2196F3';ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 9px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('K'+(i+1),px,py+0.5);
   });
 
   // zoom badge
@@ -683,16 +716,38 @@ window.addEventListener('resize',()=>{
 // DETAIL
 // ══════════════════════════════════════════════════
 let curId=null, editPinId=null, pendingXY=null;
+let calMode=false; // false=documentation, true=calibration
+
+function toggleMode(){
+  calMode=!calMode;
+  const btn=document.getElementById('modeBtn');
+  const hint=document.getElementById('hintText');
+  if(calMode){
+    btn.classList.add('mode-active');
+    btn.textContent='📝 Poznámky';
+    hint.textContent='📏 MĚŘENÍ – klepněte na bod a zadejte vzdálenost v mm';
+    document.getElementById('hintBar').style.background='rgba(33,150,243,.12)';
+  } else {
+    btn.classList.remove('mode-active');
+    btn.textContent='📏 Měření';
+    hint.textContent='Klepněte na fotku → přidejte bod s poznámkou';
+    document.getElementById('hintBar').style.background='rgba(245,166,35,.07)';
+  }
+}
 
 function openDetail(id,promptName){
   curId=id;
+  calMode=false;
+  document.getElementById('modeBtn').classList.remove('mode-active');
+  document.getElementById('modeBtn').textContent='📏 Měření';
+  document.getElementById('hintText').textContent='Klepněte na fotku → přidejte bod s poznámkou';
+  document.getElementById('hintBar').style.background='rgba(245,166,35,.07)';
   const p=photos.find(x=>x.id==id);
   document.getElementById('detailTitle').textContent=p.name||'bez názvu';
   renderDetailMeta(p);
   renderPinList(p);
   updateNavBtns();
   goTo('scrDetail');
-  // force canvas size recalculation
   canvas.width=0;canvas.height=0;
   requestAnimationFrame(()=>{
     cLoadImage(p.dataUrl);
@@ -714,10 +769,59 @@ function handleCanvasTap(cx,cy){
   pendingXY={x:pct.x,y:pct.y};
   editPinId=null;
   const p=getP();
-  document.getElementById('sheetTitle').textContent=`Nový bod ${p.pins.length+1}`;
-  document.getElementById('noteTA').value='';
-  document.getElementById('noteSheet').classList.add('open');
-  // don't reset zoom here – reset happens after save when keyboard is gone
+  if(calMode){
+    // calibration mode – open distance sheet
+    if(!p.calPins)p.calPins=[];
+    document.getElementById('calSheetTitle').textContent=`📏 Kalibrační bod ${p.calPins.length+1}`;
+    document.getElementById('calDistInput').value='';
+    document.getElementById('calSheet').classList.add('open');
+  } else {
+    // documentation mode
+    document.getElementById('sheetTitle').textContent=`Nový bod ${p.pins.length+1}`;
+    document.getElementById('noteTA').value='';
+    document.getElementById('noteSheet').classList.add('open');
+  }
+}
+
+// ══════════════════════════════════════════════════
+// CALIBRATION PINS
+// ══════════════════════════════════════════════════
+let editCalPinId=null;
+
+async function saveCalPin(){
+  const dist=parseInt(document.getElementById('calDistInput').value);
+  if(!dist||dist<=0){closeSheet('calSheet');return;}
+  const p=getP();
+  if(!p.calPins)p.calPins=[];
+  if(editCalPinId){
+    const pin=p.calPins.find(x=>x.id==editCalPinId);
+    if(pin)pin.dist=dist;
+  } else if(pendingXY){
+    p.calPins.push({id:Date.now()+Math.random(),x:pendingXY.x,y:pendingXY.y,dist});
+  }
+  await dbPut('photos',p);
+  closeSheet('calSheet');
+  document.activeElement&&document.activeElement.blur();
+  waitForViewportStable(()=>{
+    cScale=1;cOffX=0;cOffY=0;
+    cResetView();
+    renderPinList(p);
+  });
+}
+
+function editCalPin(pinId){
+  const p=getP(); const pin=p.calPins.find(x=>x.id==pinId);
+  editCalPinId=pinId; pendingXY=null;
+  const i=p.calPins.indexOf(pin)+1;
+  document.getElementById('calSheetTitle').textContent=`📏 Kalibrační bod ${i} – upravit`;
+  document.getElementById('calDistInput').value=pin.dist||'';
+  document.getElementById('calSheet').classList.add('open');
+}
+
+async function delCalPin(e,pinId){
+  e.stopPropagation();
+  const p=getP(); p.calPins=p.calPins.filter(x=>x.id!=pinId);
+  await dbPut('photos',p); cDraw(); renderPinList(p);
 }
 
 function renderPinList(p){
@@ -753,14 +857,34 @@ function renderPinList(p){
   }
 
   const list=document.getElementById('pinList');
-  if(!p.pins.length){list.innerHTML='<div style="text-align:center;color:var(--txt2);font-size:13px;padding:20px 0">Žádné body – klepněte na fotku</div>';return;}
-  list.innerHTML=p.pins.map((pin,i)=>`
-    <div class="pin-row ${editPinId==pin.id?'sel':''}" id="pr-${pin.id}" onclick="editPin('${pin.id}')">
-      <div class="pin-num">${i+1}</div>
-      <div class="pin-text ${pin.text?'':'empty'}">${pin.text?esc(pin.text):'klepněte pro text'}</div>
-      <button class="pin-del" onclick="delPin(event,'${pin.id}')">✕</button>
-    </div>
-  `).join('');
+  let html='';
+
+  // documentation pins
+  if(p.pins.length){
+    html+=p.pins.map((pin,i)=>`
+      <div class="pin-row ${editPinId==pin.id?'sel':''}" id="pr-${pin.id}" onclick="editPin('${pin.id}')">
+        <div class="pin-num">${i+1}</div>
+        <div class="pin-text ${pin.text?'':'empty'}">${pin.text?esc(pin.text):'klepněte pro text'}</div>
+        <button class="pin-del" onclick="delPin(event,'${pin.id}')">✕</button>
+      </div>
+    `).join('');
+  }
+
+  // calibration pins
+  const calPins=p.calPins||[];
+  if(calPins.length){
+    html+=`<div class="cal-section-title">📏 Kalibrační body (${calPins.length})</div>`;
+    html+=calPins.map((pin,i)=>`
+      <div class="cal-pin-row ${editCalPinId==pin.id?'sel':''}" onclick="editCalPin('${pin.id}')">
+        <div class="cal-num">K${i+1}</div>
+        <div class="pin-text">${pin.dist} mm</div>
+        <button class="pin-del" onclick="delCalPin(event,'${pin.id}')">✕</button>
+      </div>
+    `).join('');
+  }
+
+  if(!html){html='<div style="text-align:center;color:var(--txt2);font-size:13px;padding:20px 0">Žádné body – klepněte na fotku</div>';}
+  list.innerHTML=html;
 }
 
 function editPin(pinId){
@@ -840,7 +964,7 @@ function selectPlanForPhoto(planId){
 let tempPlanPos=null;
 const pCanvas=document.getElementById('planCanvas');
 const pCtx=pCanvas.getContext('2d');
-let pImg=null, pScale=1, pMinScale=1, pMaxScale=10;
+let pImg=null, pScale=1, pMinScale=1, pMaxScale=20;
 let pOffX=0, pOffY=0, pImgW=0, pImgH=0, pFitW=0, pFitH=0, pFitOX=0, pFitOY=0;
 let pGesture='none', pPinchDist0=0, pPinchScale0=1, pPanStart=null, pPanOff0=null;
 let pTapStart=0, pTapXY=null, pMoved=false;
@@ -1049,6 +1173,7 @@ function updateNavBtns(){
 function closeSheet(id){
   document.getElementById(id).classList.remove('open');
   if(id==='noteSheet'){editPinId=null;pendingXY=null;}
+  if(id==='calSheet'){editCalPinId=null;pendingXY=null;}
 }
 function sheetBg(e,id){if(e.target===e.currentTarget)closeSheet(id);}
 
@@ -1099,7 +1224,7 @@ async function doExport(){
       const fname=`foto_${String(i+1).padStart(3,'0')}.jpg`;
       folder.file(fname,p.dataUrl.split(',')[1],{base64:true});
       const planInfo=p.planId&&planFiles[p.planId]?{file:planFiles[p.planId].file,name:planFiles[p.planId].name,pos:p.planPos}:null;
-      exportData.push({idx:i+1,name:p.name,time:p.time,gps:p.gps,file:'fotky/'+fname,pins:p.pins,plan:planInfo});
+      exportData.push({idx:i+1,name:p.name,time:p.time,gps:p.gps,file:'fotky/'+fname,pins:p.pins,calPins:p.calPins||[],plan:planInfo});
     }
 
     zip.file('report.html',buildViewer(exportData,projectName,projectDate));
