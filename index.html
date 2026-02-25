@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>Inspektor v5_7</title>
+<title>Inspektor v5_8</title>
 <style>
 :root {
   --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
@@ -135,6 +135,11 @@ input[type=file]{display:none}
 
 /* CALIBRATION MODE */
 .mode-active{background:#2196F3!important;color:#fff!important;border-color:#1976D2!important}
+
+/* LENS SELECTOR */
+.lens-strip{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 14px;background:var(--s1);border:1px solid var(--s3);border-radius:var(--r);margin:0 14px 8px}
+.lens-btn{padding:5px 12px;border:1px solid var(--s3);border-radius:16px;font-size:12px;font-weight:600;background:var(--bg);cursor:pointer;font-family:inherit;color:var(--txt)}
+.lens-btn.active{background:var(--acc);color:#000;border-color:var(--acc)}
 .cal-pin-row{background:var(--s1);border:1px solid #2196F3;border-radius:10px;padding:10px 11px;display:flex;align-items:flex-start;gap:9px;cursor:pointer;transition:border-color .15s}
 .cal-pin-row.sel{border-color:#fff;box-shadow:0 0 0 2px #2196F3}
 .cal-num{width:24px;height:24px;border-radius:50%;background:#2196F3;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -146,7 +151,7 @@ input[type=file]{display:none}
 <!-- ══ HOME ══ -->
 <div class="screen" id="scrHome">
   <div class="navbar">
-    <span class="navbar-title">🏗 Inspektor v5_7</span>
+    <span class="navbar-title">🏗 Inspektor v5_8</span>
     <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
   </div>
   <div class="scroll">
@@ -179,6 +184,13 @@ input[type=file]{display:none}
         <div>Vyfotit teď</div>
         <div style="font-size:10px;margin-top:2px">fotoaparát</div>
       </div>
+    </div>
+    <div class="lens-strip" id="lensStrip">
+      <span style="font-size:11px;color:var(--txt2);margin-right:4px">Objektiv:</span>
+      <button class="lens-btn" onclick="setLens(13,'0.5×')">0.5×</button>
+      <button class="lens-btn active" onclick="setLens(29,'1×')">1×</button>
+      <button class="lens-btn" onclick="setLens(52,'2×')">2×</button>
+      <button class="lens-btn" onclick="setLens(0,'?')">jiný</button>
     </div>
     <input type="file" id="filePhoto" accept="image/*" multiple onchange="handleFiles(event)">
     <input type="file" id="fileCamera" accept="image/*" capture="environment" onchange="handleFiles(event)">
@@ -287,6 +299,13 @@ input[type=file]{display:none}
   <div class="sheet">
     <div class="sheet-title">Název fotky</div>
     <input class="sheet-input sheet-input-line" id="nameInput" placeholder="např. Fasáda jih, Okno 2NP…" onkeydown="if(event.key==='Enter'){saveName(false);event.preventDefault()}">
+    <div style="display:flex;gap:8px;margin:8px 0;align-items:center">
+      <span style="font-size:12px;color:var(--txt2)">Objektiv:</span>
+      <button class="btn btn-sm" id="lens1x" onclick="setLens(26)" style="padding:5px 14px;font-size:13px;font-weight:700;background:var(--acc);color:#000">1×</button>
+      <button class="btn btn-sm" id="lens05x" onclick="setLens(13)" style="padding:5px 14px;font-size:13px;font-weight:700">0.5×</button>
+      <input type="number" id="lensCustom" style="width:55px;padding:5px 6px;border:1px solid var(--s3);border-radius:6px;font-size:12px;text-align:center" value="26">
+      <span style="font-size:11px;color:var(--txt2)">mm</span>
+    </div>
     <div class="sheet-row">
       <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('nameSheet')">Zrušit</button>
       <button class="btn btn-ghost" style="flex:2" onclick="saveName(true)">Uložit + další foto 📷</button>
@@ -472,6 +491,17 @@ function showPlanOptions(planId){
 }
 
 // ══════════════════════════════════════════════════
+// LENS SELECTION
+// ══════════════════════════════════════════════════
+let selectedFocal35=29; // default: iPhone 1× main camera
+
+function setLens(f35,label){
+  selectedFocal35=f35;
+  document.querySelectorAll('.lens-btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+// ══════════════════════════════════════════════════
 // ADD PHOTOS
 // ══════════════════════════════════════════════════
 function handleFiles(evt){
@@ -506,6 +536,13 @@ function readFile(file,gps){
       // If still no EXIF, try from dataURL (iOS sometimes converts HEIC→JPEG with EXIF)
       if(!focalInfo || (!focalInfo.focal35 && !focalInfo.focalRaw)){
         focalInfo=extractFocalFromDataUrl(rawDataUrl);
+      }
+      
+      // If still no EXIF, use manually selected lens
+      if(!focalInfo || (!focalInfo.focal35 && !focalInfo.focalRaw)){
+        if(selectedFocal35>0){
+          focalInfo={focal35:selectedFocal35, focalRaw:null, source:'manual'};
+        }
       }
       
       // Get native resolution before compression
@@ -973,12 +1010,12 @@ function renderDetailMeta(p){
   if(p.focal && (p.focal.focal35||p.focal.focalRaw)){
     const f35=p.focal.focal35;
     const fr=p.focal.focalRaw;
-    let ftext=f35?f35+'mm(35)':'';
-    if(fr)ftext+=(ftext?' / ':'')+fr+'mm';
-    if(ftext)html+=`<span class="meta-chip">🔭 ${ftext}</span>`;
-    if(f35 && f35!==26 && f35!==28)html+=`<span class="meta-chip" style="background:#ff3b3033;color:#ff3b30">⚠ není standardní objektiv</span>`;
+    let ftext=f35?f35+'mm':'';
+    if(fr&&!f35)ftext=fr+'mm';
+    const src=p.focal.userSet?'ručně':(fr?'EXIF':'výchozí');
+    if(ftext)html+=`<span class="meta-chip">🔭 ${ftext} (${src})</span>`;
   } else {
-    html+=`<span class="meta-chip" style="color:var(--txt2)">🔭 EXIF nedostupné</span>`;
+    html+=`<span class="meta-chip" style="color:var(--txt2)">🔭 klepněte na název → nastavte objektiv</span>`;
   }
   if(p.natW&&p.natH) html+=`<span class="meta-chip" style="color:var(--txt2)">📐 ${p.natW}×${p.natH}</span>`;
   document.getElementById('detailMeta').innerHTML=html;
@@ -1355,18 +1392,42 @@ async function clearAndSavePlanPos(){
 }
 
 // ══════════════════════════════════════════════════
-// NAME SHEET
+// NAME SHEET + LENS
 // ══════════════════════════════════════════════════
+let lastLens=26; // remember last used lens
+
+function setLens(mm){
+  lastLens=mm;
+  document.getElementById('lensCustom').value=mm;
+  document.getElementById('lens1x').style.background=mm===26?'var(--acc)':'var(--s2)';
+  document.getElementById('lens1x').style.color=mm===26?'#000':'var(--txt)';
+  document.getElementById('lens05x').style.background=mm===13?'var(--acc)':'var(--s2)';
+  document.getElementById('lens05x').style.color=mm===13?'#000':'var(--txt)';
+}
+
 function openNameSheet(p){
   document.getElementById('nameInput').value=p.name||'';
+  // set lens from photo data or last used
+  const f=(p.focal&&p.focal.focal35)?p.focal.focal35:lastLens;
+  setLens(f===13?13:26);
+  document.getElementById('lensCustom').value=f;
   document.getElementById('nameSheet').classList.add('open');
   setTimeout(()=>document.getElementById('nameInput').focus(),250);
 }
+
 async function saveName(andNext){
   const val=document.getElementById('nameInput').value.trim();
-  const p=getP(); p.name=val;
+  const lens=parseInt(document.getElementById('lensCustom').value)||26;
+  lastLens=lens;
+  const p=getP();
+  p.name=val;
+  // save lens as focal info
+  if(!p.focal)p.focal={focal35:null,focalRaw:null};
+  p.focal.focal35=lens;
+  p.focal.userSet=true;
   await dbPut('photos',p);
   document.getElementById('detailTitle').textContent=val||'bez názvu';
+  renderDetailMeta(p);
   closeSheet('nameSheet'); renderGrid();
   if(andNext) document.getElementById('fileCamera').click();
 }
@@ -1544,7 +1605,7 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 <body>
 <div class="header">
   <h1>${esc(pName||'Prohlídka')}</h1>
-  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_7</div>
+  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_8</div>
 </div>
 <div class="main">
   <div class="thumb-panel" id="thumbPanel"></div>
@@ -1674,10 +1735,14 @@ function show(i){
       const fn=document.getElementById('focalNote');
       if(p.focal&&p.focal.focal35){
         fi.value=p.focal.focal35;
-        fn.textContent='(z EXIF)';fn.style.color='#2e7d32';
+        if(p.focal.userSet){
+          fn.textContent='(nastaveno v terénu)';fn.style.color='#2e7d32';
+        } else {
+          fn.textContent='(z EXIF)';fn.style.color='#2e7d32';
+        }
       } else {
         fi.value=DEFAULT_FOCAL35;
-        fn.textContent='(výchozí – EXIF chybí!)';fn.style.color='#e65100';
+        fn.textContent='(výchozí – upravte ručně!)';fn.style.color='#e65100';
       }
       setCalType(p.calPins.length>=3?3:p.calPins.length);
     } else {
