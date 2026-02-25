@@ -823,13 +823,15 @@ function renderDetailMeta(p){
   let html=`<span class="meta-chip">🕐 ${p.time}</span>`;
   if(p.gps) html+=`<span class="meta-chip"><a href="https://www.google.com/maps?q=${p.gps.lat},${p.gps.lng}" target="_blank">📍 ${p.gps.lat}, ${p.gps.lng} ±${p.gps.acc}m</a></span>`;
   else html+=`<span class="meta-chip" style="color:var(--txt2)">📍 GPS nedostupné</span>`;
-  if(p.focal){
+  if(p.focal && (p.focal.focal35||p.focal.focalRaw)){
     const f35=p.focal.focal35;
     const fr=p.focal.focalRaw;
     let ftext=f35?f35+'mm(35)':'';
     if(fr)ftext+=(ftext?' / ':'')+fr+'mm';
     if(ftext)html+=`<span class="meta-chip">🔭 ${ftext}</span>`;
     if(f35 && f35!==26 && f35!==28)html+=`<span class="meta-chip" style="background:#ff3b3033;color:#ff3b30">⚠ není standardní objektiv</span>`;
+  } else {
+    html+=`<span class="meta-chip" style="color:var(--txt2)">🔭 EXIF nedostupné</span>`;
   }
   document.getElementById('detailMeta').innerHTML=html;
 }
@@ -1502,25 +1504,6 @@ function show(i){
   if(!listHtml)listHtml='<div style="padding:18px;color:#aaa;font-size:13px;text-align:center">Bez poznámek</div>';
   document.getElementById('notesList').innerHTML=listHtml;
 
-  // calibration panel
-  const cp=document.getElementById('calPanel');
-  if(p.calPins&&p.calPins.length>0){
-    cp.style.display='block';
-    // set focal from EXIF
-    const fi=document.getElementById('focalInput');
-    const fn=document.getElementById('focalNote');
-    if(p.focal&&p.focal.focal35){
-      fi.value=p.focal.focal35;
-      fn.textContent='(z EXIF)';fn.style.color='#2e7d32';
-    } else {
-      fi.value=DEFAULT_FOCAL35;
-      fn.textContent='(výchozí – EXIF chybí!)';fn.style.color='#e65100';
-    }
-    setCalType(p.calPins.length>=3?3:p.calPins.length);
-  } else {
-    cp.style.display='none';
-  }
-
   // plan
   const ps=document.getElementById('planSection');
   if(p.plan&&p.plan.pos){
@@ -1532,9 +1515,29 @@ function show(i){
   } else {ps.style.display='none';}
 
   document.querySelectorAll('.pin-mark').forEach(e=>e.remove());
-  const onLoad=()=>{imgNatW=img.naturalWidth;imgNatH=img.naturalHeight;positionPins(p);};
+  const onLoad=()=>{
+    imgNatW=img.naturalWidth;imgNatH=img.naturalHeight;
+    positionPins(p);
+    // calibration panel – must run after image dimensions are known
+    const cp=document.getElementById('calPanel');
+    if(p.calPins&&p.calPins.length>0){
+      cp.style.display='block';
+      const fi=document.getElementById('focalInput');
+      const fn=document.getElementById('focalNote');
+      if(p.focal&&p.focal.focal35){
+        fi.value=p.focal.focal35;
+        fn.textContent='(z EXIF)';fn.style.color='#2e7d32';
+      } else {
+        fi.value=DEFAULT_FOCAL35;
+        fn.textContent='(výchozí – EXIF chybí!)';fn.style.color='#e65100';
+      }
+      setCalType(p.calPins.length>=3?3:p.calPins.length);
+    } else {
+      cp.style.display='none';
+    }
+  };
   img.onload=onLoad;
-  if(img.complete)onLoad();
+  if(img.complete&&img.naturalWidth>0)onLoad();
   if(map)map.invalidateSize();
 }
 
