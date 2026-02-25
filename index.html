@@ -225,9 +225,9 @@ input[type=file]{display:none}
     <span class="navbar-title" id="planPickTitle">Kde jste na plánku?</span>
   </div>
   <div class="plan-hint">Klepněte na místo kde stojíte → automaticky uloží</div>
-  <div class="plan-img-wrap" id="planImgWrap">
-    <img id="planPickImg" src="" alt="">
-    <div class="plan-tap-layer" id="planTapLayer"></div>
+  <div class="plan-img-wrap" id="planImgWrap" style="touch-action:none">
+    <canvas id="planCanvas" style="width:100%;height:100%;display:block;touch-action:none"></canvas>
+    <div class="zoom-badge" id="planZoomBadge" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7);color:var(--acc);font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;pointer-events:none;display:none"></div>
   </div>
   <div class="plan-actions">
     <button class="btn btn-ghost" style="flex:1" onclick="cancelPlanPick()">← Zpět</button>
@@ -518,7 +518,7 @@ function renderGrid(){
 const canvas=document.getElementById('zoomCanvas');
 const ctx=canvas.getContext('2d');
 let cImg=null;          // current Image object
-let cScale=1, cMinScale=1, cMaxScale=5;
+let cScale=1, cMinScale=1, cMaxScale=10;
 let cOffX=0, cOffY=0;   // pan offset in image pixels
 let cImgW=0, cImgH=0;   // natural image size
 let cFitW=0, cFitH=0;   // fitted size at scale=1
@@ -835,9 +835,153 @@ function selectPlanForPhoto(planId){
 }
 
 // ══════════════════════════════════════════════════
-// PLAN PICKER (mark position on plan)
+// PLAN PICKER (mark position on plan) – with canvas zoom
 // ══════════════════════════════════════════════════
 let tempPlanPos=null;
+const pCanvas=document.getElementById('planCanvas');
+const pCtx=pCanvas.getContext('2d');
+let pImg=null, pScale=1, pMinScale=1, pMaxScale=10;
+let pOffX=0, pOffY=0, pImgW=0, pImgH=0, pFitW=0, pFitH=0, pFitOX=0, pFitOY=0;
+let pGesture='none', pPinchDist0=0, pPinchScale0=1, pPanStart=null, pPanOff0=null;
+let pTapStart=0, pTapXY=null, pMoved=false;
+
+function pDraw(){
+  const dpr=window.devicePixelRatio||1;
+  const cw=pCanvas.clientWidth, ch=pCanvas.clientHeight;
+  if(pCanvas.width!==cw*dpr||pCanvas.height!==ch*dpr){pCanvas.width=cw*dpr;pCanvas.height=ch*dpr;}
+  pCtx.setTransform(dpr,0,0,dpr,0,0);
+  pCtx.clearRect(0,0,cw,ch);
+  if(!pImg||!pImg.complete)return;
+  const sw=pFitW*pScale, sh=pFitH*pScale;
+  const dx=pFitOX-pOffX*pScale*(pFitW/pImgW);
+  const dy=pFitOY-pOffY*pScale*(pFitH/pImgH);
+  pCtx.drawImage(pImg,dx,dy,sw,sh);
+  // draw existing position dot
+  if(tempPlanPos){
+    const px=dx+tempPlanPos.x/100*sw;
+    const py=dy+tempPlanPos.y/100*sh;
+    pCtx.beginPath();pCtx.arc(px,py,11,0,Math.PI*2);
+    pCtx.fillStyle='#ff3b30';pCtx.fill();
+    pCtx.strokeStyle='#fff';pCtx.lineWidth=3;pCtx.stroke();
+  }
+  // draw all other photo positions on this plan
+  const currentPhoto=getP();
+  photos.forEach((ph,i)=>{
+    if(ph.id===currentPhoto.id)return;
+    if(!ph.planPos||ph.planId!==currentPhoto.planId)return;
+    const px=dx+ph.planPos.x/100*sw;
+    const py=dy+ph.planPos.y/100*sh;
+    pCtx.beginPath();pCtx.arc(px,py,8,0,Math.PI*2);
+    pCtx.fillStyle='rgba(245,166,35,0.5)';pCtx.fill();
+    pCtx.strokeStyle='#000';pCtx.lineWidth=1.5;pCtx.stroke();
+    pCtx.fillStyle='#000';pCtx.font='bold 9px -apple-system,sans-serif';pCtx.textAlign='center';pCtx.textBaseline='middle';
+    pCtx.fillText(String(i+1),px,py+0.5);
+  });
+  const badge=document.getElementById('planZoomBadge');
+  if(pScale>1.05){badge.textContent=pScale.toFixed(1)+'×';badge.style.display='block';}
+  else{badge.style.display='none';}
+}
+
+function pLoadImage(dataUrl){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      pImg=img;pImgW=img.naturalWidth;pImgH=img.naturalHeight;
+      pResetView();res();
+    };
+    img.src=dataUrl;
+  });
+}
+
+function pResetView(){
+  pScale=1;pOffX=0;pOffY=0;
+  const cw=pCanvas.clientWidth, ch=pCanvas.clientHeight;
+  const fit=Math.min(cw/pImgW,ch/pImgH);
+  pFitW=pImgW*fit;pFitH=pImgH*fit;
+  pFitOX=(cw-pFitW)/2;pFitOY=(ch-pFitH)/2;
+  pMinScale=1;pDraw();
+}
+
+function pClamp(){
+  if(pScale<pMinScale)pScale=pMinScale;
+  if(pScale>pMaxScale)pScale=pMaxScale;
+  const maxOX=pImgW*(1-1/pScale)/2;
+  const maxOY=pImgH*(1-1/pScale)/2;
+  if(maxOX>0){pOffX=Math.max(-maxOX,Math.min(maxOX,pOffX));}else{pOffX=0;}
+  if(maxOY>0){pOffY=Math.max(-maxOY,Math.min(maxOY,pOffY));}else{pOffY=0;}
+}
+
+function pClientToImgPct(cx,cy){
+  const rect=pCanvas.getBoundingClientRect();
+  const x=cx-rect.left, y=cy-rect.top;
+  const sw=pFitW*pScale, sh=pFitH*pScale;
+  const dx=pFitOX-pOffX*pScale*(pFitW/pImgW);
+  const dy=pFitOY-pOffY*pScale*(pFitH/pImgH);
+  const pctX=(x-dx)/sw*100, pctY=(y-dy)/sh*100;
+  if(pctX<0||pctX>100||pctY<0||pctY>100)return null;
+  return{x:pctX,y:pctY};
+}
+
+function pDist(a,b){return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);}
+
+pCanvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const t=e.touches;
+  if(t.length===1){
+    pGesture='pan';pPanStart={x:t[0].clientX,y:t[0].clientY};pPanOff0={x:pOffX,y:pOffY};
+    pTapStart=Date.now();pTapXY={x:t[0].clientX,y:t[0].clientY};pMoved=false;
+  } else if(t.length===2){
+    pGesture='pinch';pPinchDist0=pDist(t[0],t[1]);pPinchScale0=pScale;pMoved=true;
+  }
+},{passive:false});
+
+pCanvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const t=e.touches;
+  if(pGesture==='pan'&&t.length===1){
+    const dx=t[0].clientX-pPanStart.x, dy=t[0].clientY-pPanStart.y;
+    if(Math.abs(dx)>4||Math.abs(dy)>4)pMoved=true;
+    if(pScale>1.05){
+      const factor=pImgW/pFitW/pScale;
+      pOffX=pPanOff0.x-dx*factor;pOffY=pPanOff0.y-dy*factor;
+      pClamp();pDraw();
+    }
+  } else if(pGesture==='pinch'&&t.length===2){
+    const d=pDist(t[0],t[1]);
+    pScale=pPinchScale0*(d/pPinchDist0);
+    pClamp();pDraw();
+  }
+},{passive:false});
+
+pCanvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  if(e.touches.length===0){
+    if(!pMoved&&(Date.now()-pTapStart)<350&&pTapXY){
+      handlePlanCanvasTap(pTapXY.x,pTapXY.y);
+    }
+    pGesture='none';
+  } else if(e.touches.length===1){
+    pGesture='pan';pPanStart={x:e.touches[0].clientX,y:e.touches[0].clientY};pPanOff0={x:pOffX,y:pOffY};
+  }
+},{passive:false});
+
+pCanvas.addEventListener('click',e=>{handlePlanCanvasTap(e.clientX,e.clientY);});
+pCanvas.addEventListener('wheel',e=>{e.preventDefault();pScale*=e.deltaY>0?0.9:1.1;pClamp();pDraw();},{passive:false});
+
+function handlePlanCanvasTap(cx,cy){
+  const pct=pClientToImgPct(cx,cy);
+  if(!pct)return;
+  tempPlanPos={x:pct.x,y:pct.y};
+  pScale=1;pOffX=0;pOffY=0;pClamp();pDraw();
+  // auto-save and return
+  setTimeout(async()=>{
+    const p=getP();
+    p.planPos=tempPlanPos;
+    await dbPut('photos',p);
+    renderPinList(p);renderGrid();
+    goTo('scrDetail');
+  },400);
+}
 
 function openPlanPicker(){
   const p=getP();
@@ -850,46 +994,12 @@ function openPlanPickerWithPlan(planId){
   if(!pl)return;
   const p=getP();
   tempPlanPos=p.planPos?{...p.planPos}:null;
-  document.getElementById('planPickImg').src=pl.dataUrl;
   document.getElementById('planPickTitle').textContent=pl.name+' – kde stojíte?';
   goTo('scrPlan');
-  setTimeout(()=>renderPlanDot(),300);
+  pLoadImage(pl.dataUrl);
 }
 
 function cancelPlanPick(){goTo('scrDetail');}
-
-document.getElementById('planPickImg').addEventListener('load',renderPlanDot);
-
-document.getElementById('planTapLayer').addEventListener('click',async function(e){
-  const img=document.getElementById('planPickImg');
-  const ir=img.getBoundingClientRect();
-  if(e.clientX<ir.left||e.clientX>ir.right||e.clientY<ir.top||e.clientY>ir.bottom)return;
-  tempPlanPos={x:(e.clientX-ir.left)/ir.width*100,y:(e.clientY-ir.top)/ir.height*100};
-  renderPlanDot();
-  // auto-save and return
-  setTimeout(async()=>{
-    const p=getP();
-    p.planPos=tempPlanPos;
-    await dbPut('photos',p);
-    renderPinList(p);
-    renderGrid();
-    goTo('scrDetail');
-  },400);
-});
-
-function renderPlanDot(){
-  document.querySelectorAll('.plan-pick-dot').forEach(e=>e.remove());
-  if(!tempPlanPos)return;
-  const img=document.getElementById('planPickImg');
-  const wrap=document.getElementById('planImgWrap');
-  const ir=img.getBoundingClientRect();
-  const wr=wrap.getBoundingClientRect();
-  const dot=document.createElement('div');
-  dot.className='plan-pick-dot';
-  dot.style.left=(ir.left-wr.left+tempPlanPos.x/100*ir.width)+'px';
-  dot.style.top=(ir.top-wr.top+tempPlanPos.y/100*ir.height)+'px';
-  wrap.appendChild(dot);
-}
 
 async function clearAndSavePlanPos(){
   tempPlanPos=null;
