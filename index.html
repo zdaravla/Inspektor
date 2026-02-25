@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>Inspektor v5_5</title>
+<title>Inspektor v5_6</title>
 <style>
 :root {
   --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
@@ -146,7 +146,7 @@ input[type=file]{display:none}
 <!-- ══ HOME ══ -->
 <div class="screen" id="scrHome">
   <div class="navbar">
-    <span class="navbar-title">🏗 Inspektor v5_5</span>
+    <span class="navbar-title">🏗 Inspektor v5_6</span>
     <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
   </div>
   <div class="scroll">
@@ -1394,7 +1394,7 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 <body>
 <div class="header">
   <h1>${esc(pName||'Prohlídka')}</h1>
-  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_5</div>
+  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_6</div>
 </div>
 <div class="main">
   <div class="thumb-panel" id="thumbPanel"></div>
@@ -1414,6 +1414,11 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
           <button class="cal-type-btn" onclick="setCalType(3)">3+ body (obecná)</button>
         </div>
         <div id="calTypeInfo" class="cal-info"></div>
+        <div class="cal-input-row">
+          <span>Ohnisková (35mm ekv.):</span>
+          <input type="number" id="focalInput" value="26" style="width:60px" onchange="updateCalibration()"> mm
+          <span id="focalNote" style="font-size:10px;color:var(--txt2)"></span>
+        </div>
         <div id="calInputs"></div>
         <div id="calStatus"></div>
         <div class="offset-row" id="offsetRow" style="display:none">
@@ -1501,6 +1506,16 @@ function show(i){
   const cp=document.getElementById('calPanel');
   if(p.calPins&&p.calPins.length>0){
     cp.style.display='block';
+    // set focal from EXIF
+    const fi=document.getElementById('focalInput');
+    const fn=document.getElementById('focalNote');
+    if(p.focal&&p.focal.focal35){
+      fi.value=p.focal.focal35;
+      fn.textContent='(z EXIF)';fn.style.color='#2e7d32';
+    } else {
+      fi.value=DEFAULT_FOCAL35;
+      fn.textContent='(výchozí – EXIF chybí!)';fn.style.color='#e65100';
+    }
     setCalType(p.calPins.length>=3?3:p.calPins.length);
   } else {
     cp.style.display='none';
@@ -1586,10 +1601,10 @@ function setCalType(t){
 }
 
 function getFocalPx(){
-  const p=DATA[cur];
-  const f35=(p.focal&&p.focal.focal35)?p.focal.focal35:DEFAULT_FOCAL35;
-  // focal in pixels: f_px = (f_35mm / 36) * image_width (36mm is full-frame width)
-  return (f35/36)*imgNatW;
+  const f35=parseFloat(document.getElementById('focalInput').value)||DEFAULT_FOCAL35;
+  // focal in pixels: f_px = (f_35mm / 36) * max(imgW, imgH) for landscape, use wider dimension
+  const maxDim=Math.max(imgNatW,imgNatH);
+  return (f35/36)*maxDim;
 }
 
 function pixToRay(px,py){
@@ -1654,9 +1669,15 @@ function updateCalibration(){
   // apply offset
   const off=parseFloat(document.getElementById('offsetInput').value)||0;
   if(off!==0){
-    planeD+=off; // shift plane by offset mm
+    planeD+=off;
     status.innerHTML+='<div style="font-size:11px;color:var(--txt2);margin-top:4px">+ odsazení '+off+' mm</div>';
   }
+
+  // diagnostic info
+  const fpx=getFocalPx();
+  const f35=parseFloat(document.getElementById('focalInput').value)||DEFAULT_FOCAL35;
+  const fovH=2*Math.atan(Math.max(imgNatW,imgNatH)/(2*fpx))*180/Math.PI;
+  status.innerHTML+='<div style="font-size:10px;color:var(--txt2);margin-top:4px">Obraz: '+imgNatW+'×'+imgNatH+'px · f='+f35+'mm(35) · f_px='+Math.round(fpx)+' · FOV='+fovH.toFixed(1)+'°</div>';
 
   mBtn.style.display='inline-block';
   offsetRow.style.display='flex';
