@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>Inspektor v5_6</title>
+<title>Inspektor v5_7</title>
 <style>
 :root {
   --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
@@ -146,7 +146,7 @@ input[type=file]{display:none}
 <!-- ══ HOME ══ -->
 <div class="screen" id="scrHome">
   <div class="navbar">
-    <span class="navbar-title">🏗 Inspektor v5_6</span>
+    <span class="navbar-title">🏗 Inspektor v5_7</span>
     <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
   </div>
   <div class="scroll">
@@ -481,36 +481,161 @@ function handleFiles(evt){
   evt.target.value='';
 }
 function readFile(file,gps){
-  const reader=new FileReader();
-  reader.onload=async e=>{
-    const rawDataUrl=e.target.result;
-    const focalInfo=extractFocalLength(rawDataUrl);
-    const compressed=await compressImage(rawDataUrl,1600,0.8);
-    const ts=Date.now();
-    const photo={id:ts+Math.random(),ts,name:'',dataUrl:compressed,gps,time:fmtDate(new Date(ts)),pins:[],calPins:[],planId:null,planPos:null,focal:focalInfo};
-    photos.push(photo);
-    await dbPut('photos',photo);
-    renderGrid();
-    openDetail(photo.id,true);
+  // Strategy: read raw bytes for EXIF, then dataURL for image
+  // iPhone may send HEIC or JPEG depending on settings
+  const exifReader=new FileReader();
+  exifReader.onload=function(){
+    const rawArr=new Uint8Array(exifReader.result);
+    let focalInfo=null;
+    
+    // Try JPEG EXIF
+    if(rawArr[0]===0xFF && rawArr[1]===0xD8){
+      focalInfo=extractFocalFromArr(rawArr);
+    }
+    
+    // Try HEIC/HEIF – look for 'ftyp' box then 'Exif' in 'meta' box
+    if(!focalInfo || (!focalInfo.focal35 && !focalInfo.focalRaw)){
+      focalInfo=extractFocalFromHEIC(rawArr);
+    }
+    
+    // Read as dataURL for image display
+    const fullReader=new FileReader();
+    fullReader.onload=async e=>{
+      const rawDataUrl=e.target.result;
+      
+      // If still no EXIF, try from dataURL (iOS sometimes converts HEIC→JPEG with EXIF)
+      if(!focalInfo || (!focalInfo.focal35 && !focalInfo.focalRaw)){
+        focalInfo=extractFocalFromDataUrl(rawDataUrl);
+      }
+      
+      // Get native resolution before compression
+      const natRes=await getNativeResolution(rawDataUrl);
+      
+      const compressed=await compressImage(rawDataUrl,1600,0.8);
+      const ts=Date.now();
+      const photo={id:ts+Math.random(),ts,name:'',dataUrl:compressed,gps,time:fmtDate(new Date(ts)),pins:[],calPins:[],planId:null,planPos:null,focal:focalInfo,natW:natRes.w,natH:natRes.h};
+      photos.push(photo);
+      await dbPut('photos',photo);
+      renderGrid();
+      openDetail(photo.id,true);
+    };
+    fullReader.readAsDataURL(file);
   };
-  reader.readAsDataURL(file);
+  // Read first 256KB for EXIF (HEIC may have it deeper)
+  exifReader.readAsArrayBuffer(file.slice(0,262144));
 }
 
-// Extract focal length from JPEG EXIF (basic parser)
-function extractFocalLength(dataUrl){
+function getNativeResolution(dataUrl){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>res({w:img.naturalWidth,h:img.naturalHeight});
+    img.onerror=()=>res({w:0,h:0});
+    img.src=dataUrl;
+  });
+}
+
+// HEIC EXIF extraction – find Exif block inside HEIC container
+function extractFocalFromHEIC(arr){
   try{
-    const bin=atob(dataUrl.split(',')[1]);
+    // Look for 'Exif' marker anywhere in first 256KB
+    for(let i=0;i<arr.length-10;i++){
+      if(arr[i]===0x45 && arr[i+1]===0x78 && arr[i+2]===0x69 && arr[i+3]===0x66 &&
+         arr[i+4]===0x00 && arr[i+5]===0x00){
+        // Found "Exif\0\0" – TIFF header follows
+        const tiffStart=i+6;
+        if(tiffStart+8>arr.length)continue;
+        const le=arr[tiffStart]===0x49;
+        const magic=le?(arr[tiffStart+2]|arr[tiffStart+3]<<8):(arr[tiffStart+2]<<8|arr[tiffStart+3]);
+        if(magic===42){
+          // Valid TIFF – reuse JPEG parser with adjusted start
+          // Create a fake wrapper so parseExifFocal works
+          const result=parseExifFocalDirect(arr,tiffStart,le);
+          if(result && (result.focal35||result.focalRaw))return result;
+        }
+      }
+    }
+  }catch(e){}
+  return null;
+}
+
+function parseExifFocalDirect(arr,tiffStart,le){
+  try{
+    function r16(o){return le?(arr[o]|arr[o+1]<<8):(arr[o]<<8|arr[o+1]);}
+    function r32(o){return le?(arr[o]|(arr[o+1]<<8)|(arr[o+2]<<16)|(arr[o+3]<<24))>>>0:((arr[o]<<24)|(arr[o+1]<<16)|(arr[o+2]<<8)|arr[o+3])>>>0;}
+    
+    const ifd0off=tiffStart+r32(tiffStart+4);
+    if(ifd0off>=arr.length)return null;
+    const n0=r16(ifd0off);
+    
+    let exifIFDoff=0;
+    for(let i=0;i<n0&&i<100;i++){
+      const eoff=ifd0off+2+i*12;
+      if(eoff+12>arr.length)break;
+      if(r16(eoff)===0x8769){exifIFDoff=tiffStart+r32(eoff+8);break;}
+    }
+    if(!exifIFDoff||exifIFDoff>=arr.length)return null;
+    
+    const ne=r16(exifIFDoff);
+    let focal35=null, focalRaw=null;
+    for(let i=0;i<ne&&i<200;i++){
+      const eoff=exifIFDoff+2+i*12;
+      if(eoff+12>arr.length)break;
+      const tag=r16(eoff);
+      if(tag===0xA405){focal35=r16(eoff+8);}
+      if(tag===0x920A){
+        const voff=tiffStart+r32(eoff+8);
+        if(voff+8<=arr.length){
+          const num=r32(voff), den=r32(voff+4);
+          if(den>0)focalRaw=Math.round(num/den*10)/10;
+        }
+      }
+    }
+    return {focal35:focal35||null, focalRaw:focalRaw||null};
+  }catch(e){}
+  return null;
+}
+
+function extractFocalFromDataUrl(dataUrl){
+  try{
+    const parts=dataUrl.split(',');
+    if(!parts[1])return null;
+    const bin=atob(parts[1].substring(0,180000)); // ~128KB base64
     const arr=new Uint8Array(bin.length);
     for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-    // Check JPEG SOI + APP1
+    return extractFocalFromArr(arr);
+  }catch(e){}
+  return null;
+}
+
+// Extract focal length from ArrayBuffer
+function extractFocalFromBuffer(buffer){
+  try{
+    const arr=new Uint8Array(buffer);
+    return extractFocalFromArr(arr);
+  }catch(e){}
+  return null;
+}
+
+function extractFocalFromArr(arr){
+  try{
+    if(arr.length<12)return null;
+    // Check JPEG SOI
     if(arr[0]!==0xFF||arr[1]!==0xD8)return null;
     let offset=2;
     while(offset<arr.length-4){
-      if(arr[offset]!==0xFF)break;
+      if(arr[offset]!==0xFF){offset++;continue;}
       const marker=arr[offset+1];
+      if(marker===0xD9||marker===0xDA)break;
+      if(marker===0x00||marker===0xFF){offset++;continue;}
+      if(offset+3>=arr.length)break;
       const len=(arr[offset+2]<<8)|arr[offset+3];
-      if(marker===0xE1){ // APP1 = EXIF
-        return parseExifFocal(arr,offset+4,len-2);
+      if(len<2)break;
+      if(marker===0xE1&&offset+4+3<arr.length){
+        const hdr=String.fromCharCode(arr[offset+4],arr[offset+5],arr[offset+6],arr[offset+7]);
+        if(hdr==='Exif'){
+          const result=parseExifFocal(arr,offset+4,len-2);
+          if(result&&(result.focal35||result.focalRaw))return result;
+        }
       }
       offset+=2+len;
     }
@@ -521,39 +646,61 @@ function extractFocalLength(dataUrl){
 function parseExifFocal(arr,start,len){
   try{
     // Check "Exif\0\0"
-    const exifStr=String.fromCharCode(arr[start],arr[start+1],arr[start+2],arr[start+3]);
-    if(exifStr!=='Exif')return null;
+    if(String.fromCharCode(arr[start],arr[start+1],arr[start+2],arr[start+3])!=='Exif')return null;
     const tiffStart=start+6;
-    const le=arr[tiffStart]===0x49; // little endian
-    const r=(o,n)=>{
-      if(n===2)return le?(arr[o]|arr[o+1]<<8):(arr[o]<<8|arr[o+1]);
-      return le?(arr[o]|arr[o+1]<<8|arr[o+2]<<16|arr[o+3]<<24):(arr[o]<<24|arr[o+1]<<16|arr[o+2]<<8|arr[o+3]);
-    };
-    // Parse IFD0
-    const ifd0off=tiffStart+r(tiffStart+4,4);
-    const n0=r(ifd0off,2);
-    let exifIFDoff=0;
-    for(let i=0;i<n0;i++){
-      const eoff=ifd0off+2+i*12;
-      const tag=r(eoff,2);
-      if(tag===0x8769){exifIFDoff=tiffStart+r(eoff+8,4);break;} // ExifIFD pointer
+    const le=arr[tiffStart]===0x49; // II = little endian, MM = big endian
+    
+    function r16(o){return le?(arr[o]|arr[o+1]<<8):(arr[o]<<8|arr[o+1]);}
+    function r32(o){
+      return le
+        ?(arr[o]|(arr[o+1]<<8)|(arr[o+2]<<16)|(arr[o+3]<<24))>>>0
+        :((arr[o]<<24)|(arr[o+1]<<16)|(arr[o+2]<<8)|arr[o+3])>>>0;
     }
-    if(!exifIFDoff)return null;
-    // Parse ExifIFD for FocalLength(0xA405=35mm equiv, 0x920A=focal)
-    const ne=r(exifIFDoff,2);
+    
+    // Verify TIFF magic
+    const magic=r16(tiffStart+2);
+    if(magic!==42)return null;
+    
+    // IFD0 offset
+    const ifd0off=tiffStart+r32(tiffStart+4);
+    if(ifd0off>=arr.length)return null;
+    const n0=r16(ifd0off);
+    
+    // Find ExifIFD pointer in IFD0
+    let exifIFDoff=0;
+    for(let i=0;i<n0&&i<100;i++){
+      const eoff=ifd0off+2+i*12;
+      if(eoff+12>arr.length)break;
+      const tag=r16(eoff);
+      if(tag===0x8769){ // ExifIFD pointer
+        exifIFDoff=tiffStart+r32(eoff+8);
+        break;
+      }
+    }
+    if(!exifIFDoff||exifIFDoff>=arr.length)return null;
+    
+    // Parse ExifIFD
+    const ne=r16(exifIFDoff);
     let focal35=null, focalRaw=null;
-    for(let i=0;i<ne;i++){
+    for(let i=0;i<ne&&i<200;i++){
       const eoff=exifIFDoff+2+i*12;
-      const tag=r(eoff,2);
-      if(tag===0xA405){focal35=r(eoff+8,2);} // FocalLengthIn35mmFilm
-      if(tag===0x920A){ // FocalLength (rational)
-        const voff=tiffStart+r(eoff+8,4);
-        const num=r(voff,4), den=r(voff+4,4);
-        if(den>0)focalRaw=Math.round(num/den*10)/10;
+      if(eoff+12>arr.length)break;
+      const tag=r16(eoff);
+      const type=r16(eoff+2);
+      
+      if(tag===0xA405){ // FocalLengthIn35mmFilm (SHORT)
+        focal35=r16(eoff+8);
+      }
+      if(tag===0x920A){ // FocalLength (RATIONAL = 2x LONG)
+        const voff=tiffStart+r32(eoff+8);
+        if(voff+8<=arr.length){
+          const num=r32(voff), den=r32(voff+4);
+          if(den>0)focalRaw=Math.round(num/den*10)/10;
+        }
       }
     }
     return {focal35:focal35||null, focalRaw:focalRaw||null};
-  }catch(e){}
+  }catch(e){console.warn('EXIF IFD parse error:',e);}
   return null;
 }
 
@@ -833,6 +980,7 @@ function renderDetailMeta(p){
   } else {
     html+=`<span class="meta-chip" style="color:var(--txt2)">🔭 EXIF nedostupné</span>`;
   }
+  if(p.natW&&p.natH) html+=`<span class="meta-chip" style="color:var(--txt2)">📐 ${p.natW}×${p.natH}</span>`;
   document.getElementById('detailMeta').innerHTML=html;
 }
 
@@ -1297,7 +1445,7 @@ async function doExport(){
       const fname=`foto_${String(i+1).padStart(3,'0')}.jpg`;
       folder.file(fname,p.dataUrl.split(',')[1],{base64:true});
       const planInfo=p.planId&&planFiles[p.planId]?{file:planFiles[p.planId].file,name:planFiles[p.planId].name,pos:p.planPos}:null;
-      exportData.push({idx:i+1,name:p.name,time:p.time,gps:p.gps,file:'fotky/'+fname,pins:p.pins,calPins:p.calPins||[],plan:planInfo,focal:p.focal||null});
+      exportData.push({idx:i+1,name:p.name,time:p.time,gps:p.gps,file:'fotky/'+fname,pins:p.pins,calPins:p.calPins||[],plan:planInfo,focal:p.focal||null,natW:p.natW||0,natH:p.natH||0});
     }
 
     zip.file('report.html',buildViewer(exportData,projectName,projectDate));
@@ -1396,7 +1544,7 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 <body>
 <div class="header">
   <h1>${esc(pName||'Prohlídka')}</h1>
-  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_6</div>
+  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_7</div>
 </div>
 <div class="main">
   <div class="thumb-panel" id="thumbPanel"></div>
@@ -1455,7 +1603,7 @@ let calType=1, calibrated=false, measuring=false;
 let measurePts=[], planeNormal=null, planeD=0, focalPx=0;
 let imgNatW=0, imgNatH=0;
 
-const DEFAULT_FOCAL35=26; // iPhone main camera
+const DEFAULT_FOCAL35=29; // iPhone main camera (measured)
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
@@ -1680,7 +1828,8 @@ function updateCalibration(){
   const fpx=getFocalPx();
   const f35=parseFloat(document.getElementById('focalInput').value)||DEFAULT_FOCAL35;
   const fovH=2*Math.atan(Math.max(imgNatW,imgNatH)/(2*fpx))*180/Math.PI;
-  status.innerHTML+='<div style="font-size:10px;color:var(--txt2);margin-top:4px">Obraz: '+imgNatW+'×'+imgNatH+'px · f='+f35+'mm(35) · f_px='+Math.round(fpx)+' · FOV='+fovH.toFixed(1)+'°</div>';
+  const natInfo=(p.natW&&p.natH)?(' · orig: '+p.natW+'×'+p.natH):'';
+  status.innerHTML+='<div style="font-size:10px;color:var(--txt2);margin-top:4px">Obraz: '+imgNatW+'×'+imgNatH+'px'+natInfo+' · f='+f35+'mm(35) · f_px='+Math.round(fpx)+' · FOV='+fovH.toFixed(1)+'°</div>';
 
   mBtn.style.display='inline-block';
   offsetRow.style.display='flex';
