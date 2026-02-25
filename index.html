@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>Inspektor v5_9</title>
+<title>Inspektor v5_10</title>
 <style>
 :root {
   --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
@@ -151,7 +151,7 @@ input[type=file]{display:none}
 <!-- ══ HOME ══ -->
 <div class="screen" id="scrHome">
   <div class="navbar">
-    <span class="navbar-title">🏗 Inspektor v5_9</span>
+    <span class="navbar-title">🏗 Inspektor v5_10</span>
     <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
   </div>
   <div class="scroll">
@@ -1605,7 +1605,7 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 <body>
 <div class="header">
   <h1>${esc(pName||'Prohlídka')}</h1>
-  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_9</div>
+  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_10</div>
 </div>
 <div class="main">
   <div class="thumb-panel" id="thumbPanel"></div>
@@ -1636,8 +1636,10 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
           <span>Odsazení roviny:</span>
           <input type="number" id="offsetInput" value="0" onchange="updateCalibration()"> mm
         </div>
-        <button class="measure-btn" id="measureBtn" onclick="toggleMeasure()" style="display:none">📏 Měřit vzdálenost</button>
-        <button class="measure-btn" id="focalCalBtn" onclick="toggleFocalCal()" style="display:none;margin-left:6px;border-color:#e65100;color:#e65100">🔭 Kalibrovat ohniskovou</button>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+          <button class="measure-btn" id="measureBtn" onclick="toggleMeasure()" style="display:none">📏 Měřit vzdálenost</button>
+          <button class="measure-btn" id="focalCalBtn" onclick="toggleFocalCal()" style="display:none;border-color:#e65100;color:#e65100">🔭 Kalibrovat ohniskovou</button>
+        </div>
         <div id="focalCalPanel" style="display:none;margin-top:8px;padding:8px;background:#fff3e0;border-radius:8px;font-size:12px">
           <div style="margin-bottom:6px;color:#e65100;font-weight:600">Kalibrace ohniskové vzdálenosti</div>
           <div style="color:var(--txt2);margin-bottom:6px">Klikněte na 2 body jejichž vzdálenost znáte → zadejte skutečnou vzdálenost → ohnisková se přepočítá.</div>
