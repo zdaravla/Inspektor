@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>Inspektor v5.4</title>
+<title>Inspektor v5.5</title>
 <style>
 :root {
   --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
@@ -146,7 +146,7 @@ input[type=file]{display:none}
 <!-- ══ HOME ══ -->
 <div class="screen" id="scrHome">
   <div class="navbar">
-    <span class="navbar-title">🏗 Inspektor v5.4</span>
+    <span class="navbar-title">🏗 Inspektor v5.5</span>
     <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
   </div>
   <div class="scroll">
@@ -483,15 +483,78 @@ function handleFiles(evt){
 function readFile(file,gps){
   const reader=new FileReader();
   reader.onload=async e=>{
-    const compressed=await compressImage(e.target.result,1600,0.8);
+    const rawDataUrl=e.target.result;
+    const focalInfo=extractFocalLength(rawDataUrl);
+    const compressed=await compressImage(rawDataUrl,1600,0.8);
     const ts=Date.now();
-    const photo={id:ts+Math.random(),ts,name:'',dataUrl:compressed,gps,time:fmtDate(new Date(ts)),pins:[],planId:null,planPos:null};
+    const photo={id:ts+Math.random(),ts,name:'',dataUrl:compressed,gps,time:fmtDate(new Date(ts)),pins:[],calPins:[],planId:null,planPos:null,focal:focalInfo};
     photos.push(photo);
     await dbPut('photos',photo);
     renderGrid();
     openDetail(photo.id,true);
   };
   reader.readAsDataURL(file);
+}
+
+// Extract focal length from JPEG EXIF (basic parser)
+function extractFocalLength(dataUrl){
+  try{
+    const bin=atob(dataUrl.split(',')[1]);
+    const arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+    // Check JPEG SOI + APP1
+    if(arr[0]!==0xFF||arr[1]!==0xD8)return null;
+    let offset=2;
+    while(offset<arr.length-4){
+      if(arr[offset]!==0xFF)break;
+      const marker=arr[offset+1];
+      const len=(arr[offset+2]<<8)|arr[offset+3];
+      if(marker===0xE1){ // APP1 = EXIF
+        return parseExifFocal(arr,offset+4,len-2);
+      }
+      offset+=2+len;
+    }
+  }catch(e){}
+  return null;
+}
+
+function parseExifFocal(arr,start,len){
+  try{
+    // Check "Exif\0\0"
+    const exifStr=String.fromCharCode(arr[start],arr[start+1],arr[start+2],arr[start+3]);
+    if(exifStr!=='Exif')return null;
+    const tiffStart=start+6;
+    const le=arr[tiffStart]===0x49; // little endian
+    const r=(o,n)=>{
+      if(n===2)return le?(arr[o]|arr[o+1]<<8):(arr[o]<<8|arr[o+1]);
+      return le?(arr[o]|arr[o+1]<<8|arr[o+2]<<16|arr[o+3]<<24):(arr[o]<<24|arr[o+1]<<16|arr[o+2]<<8|arr[o+3]);
+    };
+    // Parse IFD0
+    const ifd0off=tiffStart+r(tiffStart+4,4);
+    const n0=r(ifd0off,2);
+    let exifIFDoff=0;
+    for(let i=0;i<n0;i++){
+      const eoff=ifd0off+2+i*12;
+      const tag=r(eoff,2);
+      if(tag===0x8769){exifIFDoff=tiffStart+r(eoff+8,4);break;} // ExifIFD pointer
+    }
+    if(!exifIFDoff)return null;
+    // Parse ExifIFD for FocalLength(0xA405=35mm equiv, 0x920A=focal)
+    const ne=r(exifIFDoff,2);
+    let focal35=null, focalRaw=null;
+    for(let i=0;i<ne;i++){
+      const eoff=exifIFDoff+2+i*12;
+      const tag=r(eoff,2);
+      if(tag===0xA405){focal35=r(eoff+8,2);} // FocalLengthIn35mmFilm
+      if(tag===0x920A){ // FocalLength (rational)
+        const voff=tiffStart+r(eoff+8,4);
+        const num=r(voff,4), den=r(voff+4,4);
+        if(den>0)focalRaw=Math.round(num/den*10)/10;
+      }
+    }
+    return {focal35:focal35||null, focalRaw:focalRaw||null};
+  }catch(e){}
+  return null;
 }
 
 function compressImage(dataUrl,maxPx,quality){
@@ -760,6 +823,14 @@ function renderDetailMeta(p){
   let html=`<span class="meta-chip">🕐 ${p.time}</span>`;
   if(p.gps) html+=`<span class="meta-chip"><a href="https://www.google.com/maps?q=${p.gps.lat},${p.gps.lng}" target="_blank">📍 ${p.gps.lat}, ${p.gps.lng} ±${p.gps.acc}m</a></span>`;
   else html+=`<span class="meta-chip" style="color:var(--txt2)">📍 GPS nedostupné</span>`;
+  if(p.focal){
+    const f35=p.focal.focal35;
+    const fr=p.focal.focalRaw;
+    let ftext=f35?f35+'mm(35)':'';
+    if(fr)ftext+=(ftext?' / ':'')+fr+'mm';
+    if(ftext)html+=`<span class="meta-chip">🔭 ${ftext}</span>`;
+    if(f35 && f35!==26 && f35!==28)html+=`<span class="meta-chip" style="background:#ff3b3033;color:#ff3b30">⚠ není standardní objektiv</span>`;
+  }
   document.getElementById('detailMeta').innerHTML=html;
 }
 
@@ -1224,7 +1295,7 @@ async function doExport(){
       const fname=`foto_${String(i+1).padStart(3,'0')}.jpg`;
       folder.file(fname,p.dataUrl.split(',')[1],{base64:true});
       const planInfo=p.planId&&planFiles[p.planId]?{file:planFiles[p.planId].file,name:planFiles[p.planId].name,pos:p.planPos}:null;
-      exportData.push({idx:i+1,name:p.name,time:p.time,gps:p.gps,file:'fotky/'+fname,pins:p.pins,calPins:p.calPins||[],plan:planInfo});
+      exportData.push({idx:i+1,name:p.name,time:p.time,gps:p.gps,file:'fotky/'+fname,pins:p.pins,calPins:p.calPins||[],plan:planInfo,focal:p.focal||null});
     }
 
     zip.file('report.html',buildViewer(exportData,projectName,projectDate));
@@ -1251,7 +1322,7 @@ return `<!DOCTYPE html>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9/dist/leaflet.js"><` + `/script>
 <style>
-:root{--bg:#f5f5f7;--s1:#fff;--s2:#e8e8ed;--acc:#f5a623;--txt:#1d1d1f;--txt2:#6e6e73;--r:10px}
+:root{--bg:#f5f5f7;--s1:#fff;--s2:#e8e8ed;--acc:#f5a623;--txt:#1d1d1f;--txt2:#6e6e73;--r:10px;--blue:#2196F3}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica Neue',sans-serif;display:flex;flex-direction:column;height:100vh}
 .header{background:var(--s1);border-bottom:1px solid var(--s2);padding:16px 20px}
@@ -1267,12 +1338,17 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 .thumb-meta{font-size:10px;color:var(--txt2)}
 .thumb-pins{font-size:10px;color:var(--acc);font-weight:600;margin-top:1px}
 .content{flex:1;display:flex;overflow:hidden}
-.img-col{flex:1;background:#222;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.img-col{flex:1;background:#222;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:crosshair}
 .img-col img{max-width:100%;max-height:100%;display:block}
 .pin-mark{position:absolute;width:26px;height:26px;transform:translate(-50%,-50%);cursor:pointer;z-index:5}
 .pin-mark-inner{width:100%;height:100%;border-radius:50%;background:#f5a623;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#000;box-shadow:0 1px 6px rgba(0,0,0,.5)}
+.pin-mark.cal .pin-mark-inner{background:var(--blue);border-color:#fff;color:#fff}
 .pin-mark.hl .pin-mark-inner{background:#fff;border-color:#f5a623;color:#f5a623}
-.notes-col{width:300px;background:var(--s1);border-left:1px solid var(--s2);display:flex;flex-direction:column;overflow:hidden}
+.pin-mark.mpt{z-index:10}
+.pin-mark.mpt .pin-mark-inner{background:#ff3b30;border-color:#fff;color:#fff;width:20px;height:20px}
+.measure-line{position:absolute;pointer-events:none;z-index:8}
+.measure-result{position:absolute;z-index:11;background:rgba(0,0,0,.85);color:#fff;padding:4px 10px;border-radius:6px;font-size:13px;font-weight:700;transform:translate(-50%,-50%);pointer-events:none;white-space:nowrap}
+.notes-col{width:320px;background:var(--s1);border-left:1px solid var(--s2);display:flex;flex-direction:column;overflow:hidden}
 .notes-header{padding:14px;border-bottom:1px solid var(--s2)}
 .notes-title{font-size:16px;font-weight:700}
 .notes-meta-row{font-size:11px;color:var(--txt2);margin-top:4px}
@@ -1281,6 +1357,7 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 .note-row{display:flex;gap:8px;padding:8px;border-radius:8px;cursor:pointer;transition:background .15s;align-items:flex-start}
 .note-row:hover,.note-row.hl{background:#f0e6d0}
 .note-num{width:22px;height:22px;border-radius:50%;background:var(--acc);color:#000;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.note-num.cal{background:var(--blue);color:#fff}
 .note-text{font-size:13px;line-height:1.45;flex:1}
 .plan-section{border-top:1px solid var(--s2);padding:10px}
 .plan-section img{width:100%;border-radius:6px;display:block}
@@ -1294,6 +1371,24 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 .map-toggle{padding:8px 14px;border-top:1px solid var(--s2);text-align:center}
 .map-toggle a{color:var(--acc);cursor:pointer;font-size:13px;font-weight:600;text-decoration:none}
 .plan-label{font-size:11px;color:var(--txt2);margin-bottom:4px;font-weight:600}
+/* CALIBRATION */
+.cal-panel{border-top:1px solid var(--s2);padding:10px;background:#f8f9ff}
+.cal-title{font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.cal-type-row{display:flex;gap:6px;margin-bottom:8px}
+.cal-type-btn{padding:5px 10px;border:1px solid var(--s2);border-radius:6px;font-size:11px;cursor:pointer;background:var(--s1);font-weight:600;font-family:inherit}
+.cal-type-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.cal-info{font-size:11px;color:var(--txt2);line-height:1.5;margin-bottom:6px}
+.cal-input-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:12px}
+.cal-input-row input{width:80px;padding:4px 8px;border:1px solid var(--s2);border-radius:5px;font-size:12px;font-family:inherit}
+.cal-input-row select{padding:4px 6px;border:1px solid var(--s2);border-radius:5px;font-size:12px;font-family:inherit}
+.cal-status{font-size:12px;padding:6px 8px;border-radius:6px;margin-top:6px}
+.cal-ok{background:#e8f5e9;color:#2e7d32}
+.cal-warn{background:#fff3e0;color:#e65100}
+.measure-btn{padding:6px 14px;border:1px solid var(--blue);border-radius:6px;background:var(--s1);cursor:pointer;font-size:12px;font-weight:600;color:var(--blue);font-family:inherit;margin-top:6px}
+.measure-btn.active{background:var(--blue);color:#fff}
+.measure-btn:hover{opacity:.8}
+.offset-row{display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12px}
+.offset-row input{width:70px;padding:4px 8px;border:1px solid var(--s2);border-radius:5px;font-size:12px;font-family:inherit}
 </style>
 </head>
 <body>
@@ -1311,6 +1406,22 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
         <div id="notesMeta"></div>
       </div>
       <div class="notes-list" id="notesList"></div>
+      <div id="calPanel" class="cal-panel" style="display:none">
+        <div class="cal-title">📏 Kalibrace a měření</div>
+        <div class="cal-type-row">
+          <button class="cal-type-btn active" onclick="setCalType(1)">1 bod (kolmo)</button>
+          <button class="cal-type-btn" onclick="setCalType(2)">2 body (svislá)</button>
+          <button class="cal-type-btn" onclick="setCalType(3)">3+ body (obecná)</button>
+        </div>
+        <div id="calTypeInfo" class="cal-info"></div>
+        <div id="calInputs"></div>
+        <div id="calStatus"></div>
+        <div class="offset-row" id="offsetRow" style="display:none">
+          <span>Odsazení roviny:</span>
+          <input type="number" id="offsetInput" value="0" onchange="updateCalibration()"> mm
+        </div>
+        <button class="measure-btn" id="measureBtn" onclick="toggleMeasure()" style="display:none">📏 Měřit vzdálenost</button>
+      </div>
       <div id="planSection" style="display:none">
         <div class="plan-section">
           <div class="plan-label" id="planLabel"></div>
@@ -1333,23 +1444,29 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 <script>
 const DATA=${JSON.stringify(data)};
 let cur=0, map=null, mapOn=false;
+let calType=1, calibrated=false, measuring=false;
+let measurePts=[], planeNormal=null, planeD=0, focalPx=0;
+let imgNatW=0, imgNatH=0;
+
+const DEFAULT_FOCAL35=26; // iPhone main camera
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-// thumbs
 document.getElementById('thumbPanel').innerHTML=DATA.map((p,i)=>\`
   <div class="thumb-item" id="th-\${i}" onclick="show(\${i})">
     <img src="\${p.file}" loading="lazy">
     <div class="thumb-info">
       <div class="thumb-name">\${esc(p.name||'Foto '+p.idx)}</div>
       <div class="thumb-meta">\${p.time}</div>
-      <div class="thumb-pins">\${p.pins.length} pozn. \${p.plan?'· 📋':''}</div>
+      <div class="thumb-pins">\${p.pins.length} pozn.\${p.calPins&&p.calPins.length?' · '+p.calPins.length+'📏':''}\${p.plan?' · 📋':''}</div>
     </div>
   </div>
 \`).join('');
 
 function show(i){
   cur=i; const p=DATA[i];
+  measuring=false;measurePts=[];calibrated=false;
+  document.querySelectorAll('.mpt,.measure-line,.measure-result').forEach(e=>e.remove());
   document.querySelectorAll('.thumb-item').forEach(e=>e.classList.remove('sel'));
   const th=document.getElementById('th-'+i);if(th){th.classList.add('sel');th.scrollIntoView({block:'nearest'});}
 
@@ -1360,45 +1477,79 @@ function show(i){
 
   let meta=\`<div class="notes-meta-row">🕐 \${p.time}</div>\`;
   if(p.gps) meta+=\`<div class="notes-meta-row"><a href="https://www.google.com/maps?q=\${p.gps.lat},\${p.gps.lng}" target="_blank">📍 \${p.gps.lat}, \${p.gps.lng} ±\${p.gps.acc}m</a></div>\`;
+  if(p.focal){
+    const f35=p.focal.focal35, fr=p.focal.focalRaw;
+    let ft=f35?f35+'mm(35)':'';if(fr)ft+=(ft?' / ':'')+fr+'mm';
+    if(ft)meta+=\`<div class="notes-meta-row">🔭 \${ft}</div>\`;
+    if(f35&&f35!==26&&f35!==28)meta+=\`<div class="notes-meta-row" style="color:#e65100">⚠ nestandardní objektiv – měření může být nepřesné</div>\`;
+  }
   document.getElementById('notesMeta').innerHTML=meta;
 
-  document.getElementById('notesList').innerHTML=p.pins.length
-    ? p.pins.map((pin,j)=>\`<div class="note-row" id="nr-\${j}" onclick="hlPin(\${j})"><div class="note-num">\${j+1}</div><div class="note-text">\${esc(pin.text||'—')}</div></div>\`).join('')
-    : '<div style="padding:18px;color:#aaa;font-size:13px;text-align:center">Bez poznámek</div>';
+  // notes + cal pins list
+  let listHtml='';
+  if(p.pins.length){
+    listHtml+=p.pins.map((pin,j)=>\`<div class="note-row" id="nr-\${j}" onclick="hlPin(\${j})"><div class="note-num">\${j+1}</div><div class="note-text">\${esc(pin.text||'—')}</div></div>\`).join('');
+  }
+  if(p.calPins&&p.calPins.length){
+    listHtml+=\`<div style="font-size:11px;font-weight:700;color:#2196F3;text-transform:uppercase;padding:8px 0 4px">📏 Kalibrační body</div>\`;
+    listHtml+=p.calPins.map((pin,j)=>\`<div class="note-row" onclick="hlCalPin(\${j})"><div class="note-num cal">K\${j+1}</div><div class="note-text">\${pin.dist} mm</div></div>\`).join('');
+  }
+  if(!listHtml)listHtml='<div style="padding:18px;color:#aaa;font-size:13px;text-align:center">Bez poznámek</div>';
+  document.getElementById('notesList').innerHTML=listHtml;
+
+  // calibration panel
+  const cp=document.getElementById('calPanel');
+  if(p.calPins&&p.calPins.length>0){
+    cp.style.display='block';
+    setCalType(p.calPins.length>=3?3:p.calPins.length);
+  } else {
+    cp.style.display='none';
+  }
 
   // plan
   const ps=document.getElementById('planSection');
-  if(p.plan && p.plan.pos){
+  if(p.plan&&p.plan.pos){
     ps.style.display='block';
     document.getElementById('planLabel').textContent=p.plan.name||'Plánek';
     document.getElementById('planImg').src=p.plan.file;
     const dot=document.getElementById('planDot');
-    dot.style.display='block';
-    dot.style.left=p.plan.pos.x+'%';
-    dot.style.top=p.plan.pos.y+'%';
-  } else { ps.style.display='none'; }
+    dot.style.display='block';dot.style.left=p.plan.pos.x+'%';dot.style.top=p.plan.pos.y+'%';
+  } else {ps.style.display='none';}
 
   document.querySelectorAll('.pin-mark').forEach(e=>e.remove());
-  img.onload=()=>positionPins(p);
-  if(img.complete)positionPins(p);
-
+  const onLoad=()=>{imgNatW=img.naturalWidth;imgNatH=img.naturalHeight;positionPins(p);};
+  img.onload=onLoad;
+  if(img.complete)onLoad();
   if(map)map.invalidateSize();
 }
 
 function positionPins(p){
-  document.querySelectorAll('.pin-mark').forEach(e=>e.remove());
+  document.querySelectorAll('.pin-mark:not(.mpt)').forEach(e=>e.remove());
   const img=document.getElementById('mainImg');
   const con=document.getElementById('imgContainer');
-  const ir=img.getBoundingClientRect(); const cr=con.getBoundingClientRect();
+  const ir=img.getBoundingClientRect();const cr=con.getBoundingClientRect();
+  // doc pins
   p.pins.forEach((pin,i)=>{
     const el=document.createElement('div');
-    el.className='pin-mark'; el.dataset.j=i;
+    el.className='pin-mark';el.dataset.j=i;
     el.innerHTML=\`<div class="pin-mark-inner">\${i+1}</div>\`;
     el.style.left=(ir.left-cr.left+pin.x/100*ir.width)+'px';
     el.style.top=(ir.top-cr.top+pin.y/100*ir.height)+'px';
     el.addEventListener('click',()=>hlPin(i));
     con.appendChild(el);
   });
+  // cal pins
+  if(p.calPins){
+    p.calPins.forEach((pin,i)=>{
+      const el=document.createElement('div');
+      el.className='pin-mark cal';el.dataset.k=i;
+      el.innerHTML=\`<div class="pin-mark-inner">K\${i+1}</div>\`;
+      el.style.left=(ir.left-cr.left+pin.x/100*ir.width)+'px';
+      el.style.top=(ir.top-cr.top+pin.y/100*ir.height)+'px';
+      el.addEventListener('click',()=>hlCalPin(i));
+      con.appendChild(el);
+    });
+  }
 }
 
 function hlPin(j){
@@ -1407,6 +1558,176 @@ function hlPin(j){
   const pm=document.querySelector(\`.pin-mark[data-j="\${j}"]\`);if(pm)pm.classList.add('hl');
   const nr=document.getElementById('nr-'+j);if(nr){nr.classList.add('hl');nr.scrollIntoView({block:'nearest'});}
 }
+function hlCalPin(j){
+  document.querySelectorAll('.pin-mark').forEach(e=>e.classList.remove('hl'));
+  const pm=document.querySelector(\`.pin-mark.cal[data-k="\${j}"]\`);if(pm)pm.classList.add('hl');
+}
+
+// ── CALIBRATION ──
+function setCalType(t){
+  calType=t;
+  document.querySelectorAll('.cal-type-btn').forEach((b,i)=>b.classList.toggle('active',i+1===t));
+  const info=document.getElementById('calTypeInfo');
+  const inputs=document.getElementById('calInputs');
+  const p=DATA[cur];
+  const nCal=(p.calPins||[]).length;
+  if(t===1){
+    info.innerHTML='Rovina kolmá na osu objektivu. Bod K1 v ose objektivu, vzdálenost = kolmá vzdálenost.';
+    if(nCal<1){inputs.innerHTML='<div class="cal-status cal-warn">Potřeba alespoň 1 kalibrační bod</div>';return;}
+  } else if(t===2){
+    info.innerHTML='Svislá rovina definovaná dvěma body. Body mohou být vedle sebe i nad sebou.';
+    if(nCal<2){inputs.innerHTML='<div class="cal-status cal-warn">Potřeba alespoň 2 kalibrační body</div>';return;}
+  } else {
+    info.innerHTML='Obecná rovina definovaná třemi a více body v prostoru.';
+    if(nCal<3){inputs.innerHTML='<div class="cal-status cal-warn">Potřeba alespoň 3 kalibrační body</div>';return;}
+  }
+  inputs.innerHTML='';
+  updateCalibration();
+}
+
+function getFocalPx(){
+  const p=DATA[cur];
+  const f35=(p.focal&&p.focal.focal35)?p.focal.focal35:DEFAULT_FOCAL35;
+  // focal in pixels: f_px = (f_35mm / 36) * image_width (36mm is full-frame width)
+  return (f35/36)*imgNatW;
+}
+
+function pixToRay(px,py){
+  // convert image pixel coords to 3D ray from camera (camera at origin, looking along Z)
+  const fpx=getFocalPx();
+  const cx=imgNatW/2, cy=imgNatH/2;
+  return {x:(px-cx)/fpx, y:(py-cy)/fpx, z:1};
+}
+
+function updateCalibration(){
+  const p=DATA[cur];
+  const cals=p.calPins||[];
+  const status=document.getElementById('calStatus');
+  const offsetRow=document.getElementById('offsetRow');
+  const mBtn=document.getElementById('measureBtn');
+  calibrated=false;
+  focalPx=getFocalPx();
+
+  if(calType===1&&cals.length>=1){
+    // perpendicular plane at distance d from camera
+    const d=cals[0].dist;
+    planeNormal={x:0,y:0,z:1};
+    planeD=d;
+    calibrated=true;
+    status.innerHTML='<div class="cal-status cal-ok">✓ Kalibrováno – kolmá rovina ve vzdálenosti '+d+' mm</div>';
+  } else if(calType===2&&cals.length>=2){
+    // vertical plane through two points
+    const r0=pixToRay(cals[0].x/100*imgNatW,cals[0].y/100*imgNatH);
+    const r1=pixToRay(cals[1].x/100*imgNatW,cals[1].y/100*imgNatH);
+    const d0=cals[0].dist, d1=cals[1].dist;
+    // 3D points
+    const p0={x:r0.x*d0,y:r0.y*d0,z:r0.z*d0};
+    const p1={x:r1.x*d1,y:r1.y*d1,z:r1.z*d1};
+    // vertical plane: normal is horizontal, perpendicular to line p0-p1 projected to XZ
+    const dx=p1.x-p0.x, dz=p1.z-p0.z;
+    const len=Math.sqrt(dx*dx+dz*dz);
+    if(len<0.001){status.innerHTML='<div class="cal-status cal-warn">Body jsou příliš blízko</div>';return;}
+    planeNormal={x:-dz/len,y:0,z:dx/len};
+    planeD=planeNormal.x*p0.x+planeNormal.z*p0.z;
+    calibrated=true;
+    status.innerHTML='<div class="cal-status cal-ok">✓ Kalibrováno – svislá rovina ze 2 bodů</div>';
+  } else if(calType===3&&cals.length>=3){
+    // general plane from 3 points
+    const rays=cals.slice(0,3).map(c=>pixToRay(c.x/100*imgNatW,c.y/100*imgNatH));
+    const pts=cals.slice(0,3).map((c,i)=>({x:rays[i].x*c.dist,y:rays[i].y*c.dist,z:rays[i].z*c.dist}));
+    const v1={x:pts[1].x-pts[0].x,y:pts[1].y-pts[0].y,z:pts[1].z-pts[0].z};
+    const v2={x:pts[2].x-pts[0].x,y:pts[2].y-pts[0].y,z:pts[2].z-pts[0].z};
+    const n={x:v1.y*v2.z-v1.z*v2.y, y:v1.z*v2.x-v1.x*v2.z, z:v1.x*v2.y-v1.y*v2.x};
+    const nlen=Math.sqrt(n.x*n.x+n.y*n.y+n.z*n.z);
+    if(nlen<0.001){status.innerHTML='<div class="cal-status cal-warn">Body jsou kolineární</div>';return;}
+    planeNormal={x:n.x/nlen,y:n.y/nlen,z:n.z/nlen};
+    planeD=planeNormal.x*pts[0].x+planeNormal.y*pts[0].y+planeNormal.z*pts[0].z;
+    calibrated=true;
+    status.innerHTML='<div class="cal-status cal-ok">✓ Kalibrováno – obecná rovina ze 3 bodů</div>';
+  } else {
+    status.innerHTML='<div class="cal-status cal-warn">Nedostatek kalibračních bodů</div>';
+    mBtn.style.display='none';
+    offsetRow.style.display='none';
+    return;
+  }
+
+  // apply offset
+  const off=parseFloat(document.getElementById('offsetInput').value)||0;
+  if(off!==0){
+    planeD+=off; // shift plane by offset mm
+    status.innerHTML+='<div style="font-size:11px;color:var(--txt2);margin-top:4px">+ odsazení '+off+' mm</div>';
+  }
+
+  mBtn.style.display='inline-block';
+  offsetRow.style.display='flex';
+}
+
+// ── MEASUREMENT ──
+function toggleMeasure(){
+  measuring=!measuring;
+  const btn=document.getElementById('measureBtn');
+  btn.classList.toggle('active',measuring);
+  btn.textContent=measuring?'📏 Klikněte na 2 body ve fotce':'📏 Měřit vzdálenost';
+  if(!measuring){
+    measurePts=[];
+    document.querySelectorAll('.mpt,.measure-line,.measure-result').forEach(e=>e.remove());
+  }
+  document.getElementById('imgContainer').style.cursor=measuring?'crosshair':'default';
+}
+
+document.getElementById('imgContainer').addEventListener('click',function(ev){
+  if(!measuring||!calibrated)return;
+  const img=document.getElementById('mainImg');
+  const ir=img.getBoundingClientRect();
+  const con=this;const cr=con.getBoundingClientRect();
+  const x=ev.clientX,y=ev.clientY;
+  if(x<ir.left||x>ir.right||y<ir.top||y>ir.bottom)return;
+  const pctX=(x-ir.left)/ir.width*100;
+  const pctY=(y-ir.top)/ir.height*100;
+  measurePts.push({pctX,pctY,screenX:x-cr.left,screenY:y-cr.top});
+
+  // draw point
+  const el=document.createElement('div');
+  el.className='pin-mark mpt';
+  el.innerHTML='<div class="pin-mark-inner">'+measurePts.length+'</div>';
+  el.style.left=(x-cr.left)+'px';el.style.top=(y-cr.top)+'px';
+  con.appendChild(el);
+
+  if(measurePts.length===2){
+    const a=measurePts[0],b=measurePts[1];
+    // convert to image pixels
+    const ax=a.pctX/100*imgNatW, ay=a.pctY/100*imgNatH;
+    const bx=b.pctX/100*imgNatW, by=b.pctY/100*imgNatH;
+    // rays
+    const ra=pixToRay(ax,ay), rb=pixToRay(bx,by);
+    // intersect rays with plane
+    const dota=planeNormal.x*ra.x+planeNormal.y*ra.y+planeNormal.z*ra.z;
+    const dotb=planeNormal.x*rb.x+planeNormal.y*rb.y+planeNormal.z*rb.z;
+    if(Math.abs(dota)<1e-9||Math.abs(dotb)<1e-9){measurePts=[];return;}
+    const ta=planeD/dota, tb=planeD/dotb;
+    const pa={x:ra.x*ta,y:ra.y*ta,z:ra.z*ta};
+    const pb={x:rb.x*tb,y:rb.y*tb,z:rb.z*tb};
+    const dist=Math.sqrt((pb.x-pa.x)**2+(pb.y-pa.y)**2+(pb.z-pa.z)**2);
+
+    // draw line
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('class','measure-line');
+    svg.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:8';
+    svg.innerHTML=\`<line x1="\${a.screenX}" y1="\${a.screenY}" x2="\${b.screenX}" y2="\${b.screenY}" stroke="#ff3b30" stroke-width="2" stroke-dasharray="6,4"/>\`;
+    con.appendChild(svg);
+
+    // draw result label
+    const lbl=document.createElement('div');
+    lbl.className='measure-result';
+    lbl.textContent=Math.round(dist)+' mm';
+    lbl.style.left=((a.screenX+b.screenX)/2)+'px';
+    lbl.style.top=((a.screenY+b.screenY)/2-16)+'px';
+    con.appendChild(lbl);
+
+    // reset for next measurement
+    setTimeout(()=>{measurePts=[];},100);
+  }
+});
 
 function prev(){if(cur>0)show(cur-1);}
 function next(){if(cur<DATA.length-1)show(cur+1);}
