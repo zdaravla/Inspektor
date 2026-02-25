@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>Inspektor v5_8</title>
+<title>Inspektor v5_9</title>
 <style>
 :root {
   --bg:#111; --s1:#1c1c1e; --s2:#2c2c2e; --s3:#3a3a3c;
@@ -151,7 +151,7 @@ input[type=file]{display:none}
 <!-- ══ HOME ══ -->
 <div class="screen" id="scrHome">
   <div class="navbar">
-    <span class="navbar-title">🏗 Inspektor v5_8</span>
+    <span class="navbar-title">🏗 Inspektor v5_9</span>
     <button class="btn btn-ghost btn-sm" onclick="showExport()">Export</button>
   </div>
   <div class="scroll">
@@ -1605,7 +1605,7 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
 <body>
 <div class="header">
   <h1>${esc(pName||'Prohlídka')}</h1>
-  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_8</div>
+  <div class="meta">${esc(pDate)} · ${data.length} fotografií · ${data.reduce((s,p)=>s+p.pins.length,0)} poznámek · Inspektor v5_9</div>
 </div>
 <div class="main">
   <div class="thumb-panel" id="thumbPanel"></div>
@@ -1637,6 +1637,21 @@ body{background:var(--bg);color:var(--txt);font-family:-apple-system,'Helvetica 
           <input type="number" id="offsetInput" value="0" onchange="updateCalibration()"> mm
         </div>
         <button class="measure-btn" id="measureBtn" onclick="toggleMeasure()" style="display:none">📏 Měřit vzdálenost</button>
+        <button class="measure-btn" id="focalCalBtn" onclick="toggleFocalCal()" style="display:none;margin-left:6px;border-color:#e65100;color:#e65100">🔭 Kalibrovat ohniskovou</button>
+        <div id="focalCalPanel" style="display:none;margin-top:8px;padding:8px;background:#fff3e0;border-radius:8px;font-size:12px">
+          <div style="margin-bottom:6px;color:#e65100;font-weight:600">Kalibrace ohniskové vzdálenosti</div>
+          <div style="color:var(--txt2);margin-bottom:6px">Klikněte na 2 body jejichž vzdálenost znáte → zadejte skutečnou vzdálenost → ohnisková se přepočítá.</div>
+          <div id="focalCalStatus" style="color:var(--txt2)">Klikněte na první bod…</div>
+          <div id="focalCalInput" style="display:none;margin-top:6px">
+            <div style="margin-bottom:4px">Naměřeno z modelu: <strong id="focalCalMeasured">0</strong> mm</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span>Skutečná vzdálenost:</span>
+              <input type="number" id="focalCalReal" style="width:80px;padding:4px 8px;border:1px solid var(--s2);border-radius:5px;font-size:12px">
+              <span>mm</span>
+              <button class="measure-btn" onclick="applyFocalCal()" style="margin:0;padding:4px 12px;border-color:#e65100;color:#e65100">Přepočítat</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="planSection" style="display:none">
         <div class="plan-section">
@@ -1681,7 +1696,7 @@ document.getElementById('thumbPanel').innerHTML=DATA.map((p,i)=>\`
 
 function show(i){
   cur=i; const p=DATA[i];
-  measuring=false;measurePts=[];calibrated=false;
+  measuring=false;measurePts=[];calibrated=false;focalCalMode=false;focalCalPts=[];
   document.querySelectorAll('.mpt,.measure-line,.measure-result').forEach(e=>e.remove());
   document.querySelectorAll('.thumb-item').forEach(e=>e.classList.remove('sel'));
   const th=document.getElementById('th-'+i);if(th){th.classList.add('sel');th.scrollIntoView({block:'nearest'});}
@@ -1878,6 +1893,8 @@ function updateCalibration(){
   } else {
     status.innerHTML='<div class="cal-status cal-warn">Nedostatek kalibračních bodů</div>';
     mBtn.style.display='none';
+    document.getElementById('focalCalBtn').style.display='none';
+    document.getElementById('focalCalPanel').style.display='none';
     offsetRow.style.display='none';
     return;
   }
@@ -1897,12 +1914,16 @@ function updateCalibration(){
   status.innerHTML+='<div style="font-size:10px;color:var(--txt2);margin-top:4px">Obraz: '+imgNatW+'×'+imgNatH+'px'+natInfo+' · f='+f35+'mm(35) · f_px='+Math.round(fpx)+' · FOV='+fovH.toFixed(1)+'°</div>';
 
   mBtn.style.display='inline-block';
+  document.getElementById('focalCalBtn').style.display='inline-block';
   offsetRow.style.display='flex';
 }
 
 // ── MEASUREMENT ──
+let focalCalMode=false, focalCalPts=[], focalCalDist=0;
+
 function toggleMeasure(){
   measuring=!measuring;
+  if(focalCalMode){toggleFocalCal();} // turn off focal cal
   const btn=document.getElementById('measureBtn');
   btn.classList.toggle('active',measuring);
   btn.textContent=measuring?'📏 Klikněte na 2 body ve fotce':'📏 Měřit vzdálenost';
@@ -1913,8 +1934,42 @@ function toggleMeasure(){
   document.getElementById('imgContainer').style.cursor=measuring?'crosshair':'default';
 }
 
+function toggleFocalCal(){
+  focalCalMode=!focalCalMode;
+  if(measuring){toggleMeasure();} // turn off measuring
+  const btn=document.getElementById('focalCalBtn');
+  const panel=document.getElementById('focalCalPanel');
+  btn.classList.toggle('active',focalCalMode);
+  panel.style.display=focalCalMode?'block':'none';
+  if(focalCalMode){
+    focalCalPts=[];focalCalDist=0;
+    document.getElementById('focalCalStatus').textContent='Klikněte na první bod…';
+    document.getElementById('focalCalInput').style.display='none';
+    document.querySelectorAll('.mpt,.measure-line,.measure-result').forEach(e=>e.remove());
+  } else {
+    focalCalPts=[];
+    document.querySelectorAll('.mpt,.measure-line,.measure-result').forEach(e=>e.remove());
+  }
+  document.getElementById('imgContainer').style.cursor=focalCalMode?'crosshair':'default';
+}
+
+function applyFocalCal(){
+  const real=parseFloat(document.getElementById('focalCalReal').value);
+  if(!real||real<=0||!focalCalDist)return;
+  // f_new = f_old * (measured / real)
+  const fOld=parseFloat(document.getElementById('focalInput').value)||26;
+  const fNew=Math.round(fOld*focalCalDist/real*10)/10;
+  document.getElementById('focalInput').value=fNew;
+  document.getElementById('focalNote').textContent='(kalibrováno: '+fOld+'→'+fNew+'mm)';
+  document.getElementById('focalNote').style.color='#2e7d32';
+  // reset and recalculate
+  toggleFocalCal();
+  updateCalibration();
+}
+
 document.getElementById('imgContainer').addEventListener('click',function(ev){
-  if(!measuring||!calibrated)return;
+  if(!calibrated)return;
+  if(!measuring&&!focalCalMode)return;
   const img=document.getElementById('mainImg');
   const ir=img.getBoundingClientRect();
   const con=this;const cr=con.getBoundingClientRect();
@@ -1922,26 +1977,29 @@ document.getElementById('imgContainer').addEventListener('click',function(ev){
   if(x<ir.left||x>ir.right||y<ir.top||y>ir.bottom)return;
   const pctX=(x-ir.left)/ir.width*100;
   const pctY=(y-ir.top)/ir.height*100;
-  measurePts.push({pctX,pctY,screenX:x-cr.left,screenY:y-cr.top});
+  
+  const pts=focalCalMode?focalCalPts:measurePts;
+  pts.push({pctX,pctY,screenX:x-cr.left,screenY:y-cr.top});
 
   // draw point
   const el=document.createElement('div');
   el.className='pin-mark mpt';
-  el.innerHTML='<div class="pin-mark-inner">'+measurePts.length+'</div>';
+  el.innerHTML='<div class="pin-mark-inner">'+pts.length+'</div>';
   el.style.left=(x-cr.left)+'px';el.style.top=(y-cr.top)+'px';
   con.appendChild(el);
+  
+  if(focalCalMode){
+    document.getElementById('focalCalStatus').textContent=pts.length===1?'Klikněte na druhý bod…':'Výpočet…';
+  }
 
-  if(measurePts.length===2){
-    const a=measurePts[0],b=measurePts[1];
-    // convert to image pixels
+  if(pts.length===2){
+    const a=pts[0],b=pts[1];
     const ax=a.pctX/100*imgNatW, ay=a.pctY/100*imgNatH;
     const bx=b.pctX/100*imgNatW, by=b.pctY/100*imgNatH;
-    // rays
     const ra=pixToRay(ax,ay), rb=pixToRay(bx,by);
-    // intersect rays with plane
     const dota=planeNormal.x*ra.x+planeNormal.y*ra.y+planeNormal.z*ra.z;
     const dotb=planeNormal.x*rb.x+planeNormal.y*rb.y+planeNormal.z*rb.z;
-    if(Math.abs(dota)<1e-9||Math.abs(dotb)<1e-9){measurePts=[];return;}
+    if(Math.abs(dota)<1e-9||Math.abs(dotb)<1e-9){pts.length=0;return;}
     const ta=planeD/dota, tb=planeD/dotb;
     const pa={x:ra.x*ta,y:ra.y*ta,z:ra.z*ta};
     const pb={x:rb.x*tb,y:rb.y*tb,z:rb.z*tb};
@@ -1951,7 +2009,7 @@ document.getElementById('imgContainer').addEventListener('click',function(ev){
     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
     svg.setAttribute('class','measure-line');
     svg.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:8';
-    svg.innerHTML=\`<line x1="\${a.screenX}" y1="\${a.screenY}" x2="\${b.screenX}" y2="\${b.screenY}" stroke="#ff3b30" stroke-width="2" stroke-dasharray="6,4"/>\`;
+    svg.innerHTML=\`<line x1="\${a.screenX}" y1="\${a.screenY}" x2="\${b.screenX}" y2="\${b.screenY}" stroke="\${focalCalMode?'#e65100':'#ff3b30'}" stroke-width="2" stroke-dasharray="6,4"/>\`;
     con.appendChild(svg);
 
     // draw result label
@@ -1962,8 +2020,17 @@ document.getElementById('imgContainer').addEventListener('click',function(ev){
     lbl.style.top=((a.screenY+b.screenY)/2-16)+'px';
     con.appendChild(lbl);
 
-    // reset for next measurement
-    setTimeout(()=>{measurePts=[];},100);
+    if(focalCalMode){
+      focalCalDist=dist;
+      document.getElementById('focalCalMeasured').textContent=Math.round(dist);
+      document.getElementById('focalCalInput').style.display='block';
+      document.getElementById('focalCalStatus').textContent='Naměřeno '+Math.round(dist)+' mm – zadejte skutečnou vzdálenost:';
+      document.getElementById('focalCalReal').value='';
+      document.getElementById('focalCalReal').focus();
+      focalCalPts=[];
+    } else {
+      setTimeout(()=>{measurePts=[];},100);
+    }
   }
 });
 
